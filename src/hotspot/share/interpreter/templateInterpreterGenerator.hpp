@@ -22,6 +22,12 @@
  *
  */
 
+/*
+ * This file has been modified by Loongson Technology in 2022. These
+ * modifications are Copyright (c) 2021, 2022, Loongson Technology, and are made
+ * available on the same license terms set forth above.
+ */
+
 #ifndef SHARE_INTERPRETER_TEMPLATEINTERPRETERGENERATOR_HPP
 #define SHARE_INTERPRETER_TEMPLATEINTERPRETERGENERATOR_HPP
 
@@ -95,7 +101,7 @@ class TemplateInterpreterGenerator: public AbstractInterpreterGenerator {
   address generate_CRC32_update_entry();
   address generate_CRC32_updateBytes_entry(AbstractInterpreter::MethodKind kind);
   address generate_CRC32C_updateBytes_entry(AbstractInterpreter::MethodKind kind);
-#ifdef AMD64
+#if defined(AMD64) || defined(LOONGARCH64)
   address generate_currentThread();
 #endif
 #ifdef IA32
@@ -114,9 +120,9 @@ class TemplateInterpreterGenerator: public AbstractInterpreterGenerator {
 
   void generate_fixed_frame(bool native_call);
 
-#ifdef AARCH64
+#if defined(AARCH64) || defined(LOONGARCH64)
   void generate_transcendental_entry(AbstractInterpreter::MethodKind kind, int fpargs);
-#endif // AARCH64
+#endif // AARCH64 || LOONGARCH64
 
 #ifdef ARM32
   void generate_math_runtime_call(AbstractInterpreter::MethodKind kind);

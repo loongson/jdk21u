@@ -22,6 +22,12 @@
  *
  */
 
+/*
+ * This file has been modified by Loongson Technology in 2022, These
+ * modifications are Copyright (c) 2022, Loongson Technology, and are made
+ * available on the same license terms set forth above.
+ */
+
 #include "precompiled.hpp"
 #include "jvm.h"
 #include "cds/filemap.hpp"
@@ -2063,7 +2069,7 @@ bool Arguments::check_vm_args_consistency() {
   }
 #endif
 
-#if !defined(X86) && !defined(AARCH64) && !defined(PPC64) && !defined(RISCV64)
+#if !defined(X86) && !defined(AARCH64) && !defined(PPC64) && !defined(RISCV64) && !defined(LOONGARCH64)
   if (UseHeavyMonitors) {
     jio_fprintf(defaultStream::error_stream(),
                 "UseHeavyMonitors is not fully implemented on this architecture");

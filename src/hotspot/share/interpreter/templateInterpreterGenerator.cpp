@@ -22,6 +22,12 @@
  *
  */
 
+/*
+ * This file has been modified by Loongson Technology in 2022. These
+ * modifications are Copyright (c) 2022, Loongson Technology, and are made
+ * available on the same license terms set forth above.
+ */
+
 #include "precompiled.hpp"
 #include "compiler/disassembler.hpp"
 #include "interpreter/interpreter.hpp"
@@ -201,7 +207,7 @@ void TemplateInterpreterGenerator::generate_all() {
   method_entry(java_lang_math_fmaF )
   method_entry(java_lang_math_fmaD )
   method_entry(java_lang_ref_reference_get)
-#ifdef AMD64
+#if defined(AMD64) || defined(LOONGARCH64)
   method_entry(java_lang_Thread_currentThread)
 #endif
   AbstractInterpreter::initialize_method_handle_entries();
@@ -437,7 +443,7 @@ address TemplateInterpreterGenerator::generate_method_entry(
                                            : // fall thru
   case Interpreter::java_util_zip_CRC32C_updateDirectByteBuffer
                                            : entry_point = generate_CRC32C_updateBytes_entry(kind); break;
-#ifdef AMD64
+#if defined(AMD64) || defined(LOONGARCH64)
   case Interpreter::java_lang_Thread_currentThread
                                            : entry_point = generate_currentThread(); break;
 #endif

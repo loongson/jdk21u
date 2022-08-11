@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2022, Arm Limited. All rights reserved.
+ * Copyright (c) 2020, Red Hat, Inc. All rights reserved.
+ * Copyright (c) 2021, 2022, Loongson Technology. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,34 +22,36 @@
  * questions.
  */
 
-package org.openjdk.bench.vm.compiler;
+#include "precompiled.hpp"
+#include "code/vmreg.hpp"
+#include "prims/foreignGlobals.hpp"
+#include "utilities/debug.hpp"
 
-import org.openjdk.jmh.annotations.Benchmark;
-import org.openjdk.jmh.annotations.Param;
-import org.openjdk.jmh.annotations.Scope;
-import org.openjdk.jmh.annotations.State;
+class MacroAssembler;
 
-@State(Scope.Benchmark)
-public class RangeCheckHoisting {
+const ABIDescriptor ForeignGlobals::parse_abi_descriptor(jobject jabi) {
+  ShouldNotCallThis();
+  return {};
+}
 
-    private static final int SIZE = 65536;
+VMReg ForeignGlobals::vmstorage_to_vmreg(int type, int index) {
+  Unimplemented();
+  return VMRegImpl::Bad();
+}
 
-    @Param("6789") private int count;
+int RegSpiller::pd_reg_size(VMReg reg) {
+  Unimplemented();
+  return -1;
+}
 
-    private static int[] a = new int[SIZE];
-    private static int[] b = new int[SIZE];
+void RegSpiller::pd_store_reg(MacroAssembler* masm, int offset, VMReg reg) {
+  Unimplemented();
+}
 
-    @Benchmark
-    public void ivScaled3() {
-        for (int i = 0; i < count; i++) {
-            b[3 * i] = a[3 * i];
-        }
-    }
+void RegSpiller::pd_load_reg(MacroAssembler* masm, int offset, VMReg reg) {
+  Unimplemented();
+}
 
-    @Benchmark
-    public void ivScaled7() {
-        for (int i = 0; i < count; i++) {
-            b[7 * i] = a[7 * i];
-        }
-    }
+void ArgumentShuffle::pd_generate(MacroAssembler* masm, VMReg tmp, int in_stk_bias, int out_stk_bias) const {
+  Unimplemented();
 }

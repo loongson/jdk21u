@@ -22,6 +22,12 @@
  *
  */
 
+/*
+ * This file has been modified by Loongson Technology in 2022. These
+ * modifications are Copyright (c) 2022, Loongson Technology, and are made
+ * available on the same license terms set forth above.
+ */
+
 #include "precompiled.hpp"
 #include "asm/macroAssembler.hpp"
 #include "asm/macroAssembler.inline.hpp"
@@ -133,7 +139,7 @@ AbstractInterpreter::MethodKind AbstractInterpreter::method_kind(const methodHan
       case vmIntrinsics::_floatToRawIntBits: return java_lang_Float_floatToRawIntBits;
       case vmIntrinsics::_longBitsToDouble:  return java_lang_Double_longBitsToDouble;
       case vmIntrinsics::_doubleToRawLongBits: return java_lang_Double_doubleToRawLongBits;
-#ifdef AMD64
+#if defined(AMD64) || defined(LOONGARCH64)
       case vmIntrinsics::_currentThread:     return java_lang_Thread_currentThread;
 #endif
 #endif // ZERO

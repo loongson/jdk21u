@@ -35,6 +35,12 @@
 #include "runtime/timerTrace.hpp"
 #include "utilities/bitMap.inline.hpp"
 
+/*
+ * This file has been modified by Loongson Technology in 2022, These
+ * modifications are Copyright (c) 2022, Loongson Technology, and are made
+ * available on the same license terms set forth above.
+ */
+
 #ifndef PRODUCT
 
   static LinearScanStatistic _stat_before_alloc;
@@ -3131,7 +3137,7 @@ void LinearScan::do_linear_scan() {
     }
   }
 
-#ifndef RISCV
+#if !defined(RISCV) && !defined(LOONGARCH)
   // Disable these optimizations on riscv temporarily, because it does not
   // work when the comparison operands are bound to branches or cmoves.
   { TIME_LINEAR_SCAN(timer_optimize_lir);
