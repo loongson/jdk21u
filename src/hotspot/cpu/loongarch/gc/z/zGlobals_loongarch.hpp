@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2015, 2021, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2021, Loongson Technology. All rights reserved.
+ * Copyright (c) 2021, 2022, Loongson Technology. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,6 @@
 #ifndef CPU_LOONGARCH_GC_Z_ZGLOBALS_LOONGARCH_HPP
 #define CPU_LOONGARCH_GC_Z_ZGLOBALS_LOONGARCH_HPP
 
-const size_t ZPlatformGranuleSizeShift = 21; // 2MB
 const size_t ZPlatformHeapViews        = 3;
 const size_t ZPlatformCacheLineSize    = 64;
 

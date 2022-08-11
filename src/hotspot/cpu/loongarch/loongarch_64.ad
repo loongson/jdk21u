@@ -5305,7 +5305,6 @@ instruct  jmpLoopEnd_reg_zero_long(cmpOp cop, mRegI src1, immI_0 zero, label lab
 %}
 
 
-// This match pattern is created for StoreIConditional since I cannot match IfNode without a RegFlags!
 instruct jmpCon_flags_long(cmpOpEqNe cop, FlagsReg cr, label labl) %{
   match(If cop cr);
   effect(USE labl);
@@ -5735,7 +5734,6 @@ instruct  jmpLoopEnd_reg_zero_short(cmpOp cop, mRegI src1, immI_0 zero, label la
 %}
 
 
-// This match pattern is created for StoreIConditional since I cannot match IfNode without a RegFlags!
 instruct jmpCon_flags_short(cmpOpEqNe cop, FlagsReg cr, label labl) %{
   match(If cop cr);
   effect(USE labl);
@@ -11362,120 +11360,6 @@ instruct partialSubtypeCheckVsZero_short( mRegP sub, mRegP super, mRegP tmp1, mR
   ins_pipe( pipe_slow );
   ins_short_branch(1);
 %}
-
-// Conditional-store of the updated heap-top.
-// Used during allocation of the shared heap.
-
-instruct storePConditional(memory heap_top_ptr, mRegP oldval, mRegP newval, FlagsReg cr) %{
-  match(Set cr (StorePConditional heap_top_ptr (Binary oldval newval)));
-
-  format %{ "move AT, $newval\n\t"
-            "sc_d $heap_top_ptr, AT\t# (ptr) @storePConditional \n\t"
-            "move $cr, AT\n" %}
-  ins_encode%{
-    Register oldval = $oldval$$Register;
-    Register newval = $newval$$Register;
-    Address addr(as_Register($heap_top_ptr$$base), $heap_top_ptr$$disp);
-
-    int     index = $heap_top_ptr$$index;
-    int     scale = $heap_top_ptr$$scale;
-    int      disp = $heap_top_ptr$$disp;
-
-    guarantee(Assembler::is_simm(disp, 12), "");
-
-    if (index != -1) {
-      __ stop("in storePConditional: index != -1");
-    } else {
-      __ move(AT, newval);
-      __ sc_d(AT, addr);
-      __ move($cr$$Register, AT);
-    }
-  %}
-  ins_pipe(long_memory_op);
-%}
-
-// Conditional-store of an int value.
-// AT flag is set on success, reset otherwise.
-instruct storeIConditional(memory mem, mRegI oldval, mRegI newval, FlagsReg cr) %{
-  match(Set cr (StoreIConditional mem (Binary oldval newval)));
-  format %{ "CMPXCHG  $newval, $mem, $oldval \t# @storeIConditional" %}
-
-  ins_encode %{
-    Register oldval = $oldval$$Register;
-    Register newval = $newval$$Register;
-    Register cr     = $cr$$Register;
-    Address  addr(as_Register($mem$$base), $mem$$disp);
-
-    int     index = $mem$$index;
-    int     scale = $mem$$scale;
-    int      disp = $mem$$disp;
-
-    guarantee(Assembler::is_simm(disp, 12), "");
-
-    if (index != -1) {
-      __ stop("in storeIConditional: index != -1");
-    } else {
-      if (cr != addr.base() && cr != oldval && cr != newval) {
-        __ cmpxchg32(addr, oldval, newval, cr, true, false, true);
-      } else {
-        __ cmpxchg32(addr, oldval, newval, AT, true, false, true);
-        __ move(cr, AT);
-      }
-    }
-  %}
-
-  ins_pipe(long_memory_op);
-%}
-
-// Conditional-store of a long value.
-// ZF flag is set on success, reset otherwise.  Implemented with a CMPXCHG.
-instruct storeLConditional(memory mem, mRegL oldval, mRegL newval, FlagsReg cr)
-%{
-  match(Set cr (StoreLConditional mem (Binary oldval newval)));
-
-  format %{ "cmpxchg $mem, $newval\t# If $oldval == $mem then store $newval into $mem" %}
-  ins_encode%{
-    Register oldval = $oldval$$Register;
-    Register newval = $newval$$Register;
-    Register cr     = $cr$$Register;
-    Address addr(as_Register($mem$$base), $mem$$disp);
-
-    int     index = $mem$$index;
-    int     scale = $mem$$scale;
-    int      disp = $mem$$disp;
-
-    guarantee(Assembler::is_simm(disp, 12), "");
-
-    if (index != -1) {
-      __ stop("in storeIConditional: index != -1");
-    } else {
-      if (cr != addr.base() && cr != oldval && cr != newval) {
-        __ cmpxchg(addr, oldval, newval, cr, false, true);
-      } else {
-        __ cmpxchg(addr, oldval, newval, AT, false, true);
-        __ move(cr, AT);
-      }
-    }
-  %}
-  ins_pipe(long_memory_op);
-%}
-
-// Implement LoadPLocked. Must be ordered against changes of the memory location
-// by storePConditional.
-instruct loadPLocked(mRegP dst, memory mem) %{
-  match(Set dst (LoadPLocked mem));
-  ins_cost(MEMORY_REF_COST);
-
-  format %{ "ll_d    $dst, $mem #@loadPLocked\n\t" %}
-  size(12);
-  ins_encode %{
-    relocInfo::relocType disp_reloc = $mem->disp_reloc();
-    assert(disp_reloc == relocInfo::none, "cannot have disp");
-    __ loadstore_enc($dst$$Register, $mem$$base, $mem$$index, $mem$$scale, $mem$$disp, C2_MacroAssembler::LOAD_LINKED_LONG);
-  %}
-  ins_pipe( ialu_loadI );
-%}
-
 
 instruct compareAndSwapI(mRegI res, mRegP mem_ptr, mRegI oldval, mRegI newval) %{
   match(Set res (CompareAndSwapI mem_ptr (Binary oldval newval)));
