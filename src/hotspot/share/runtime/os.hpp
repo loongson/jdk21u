@@ -22,6 +22,12 @@
  *
  */
 
+/*
+ * This file has been modified by Loongson Technology in 2022, These
+ * modifications are Copyright (c) 2022, Loongson Technology, and are made
+ * available on the same license terms set forth above.
+ */
+
 #ifndef SHARE_RUNTIME_OS_HPP
 #define SHARE_RUNTIME_OS_HPP
 
@@ -310,6 +316,9 @@ class os: AllStatic {
     // in place until called after initialization has occurred.
     return (_processor_count != 1);
   }
+
+  // Used only on LoongArch64.
+  static bool is_ActiveCoresMP();
 
   static julong available_memory();
   static julong physical_memory();

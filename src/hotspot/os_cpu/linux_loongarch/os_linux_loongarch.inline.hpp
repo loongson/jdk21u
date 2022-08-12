@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2015, 2022, Loongson Technology. All rights reserved.
+ * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, Loongson Technology. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,16 +23,7 @@
  *
  */
 
-#ifndef OS_CPU_LINUX_LOONGARCH_OS_LINUX_LOONGARCH_HPP
-#define OS_CPU_LINUX_LOONGARCH_OS_LINUX_LOONGARCH_HPP
+#ifndef OS_CPU_LINUX_LOONGARCH_OS_LINUX_LOONGARCH_INLINE_HPP
+#define OS_CPU_LINUX_LOONGARCH_OS_LINUX_LOONGARCH_INLINE_HPP
 
-  static void setup_fpu();
-  static bool is_allocatable(size_t bytes);
-
-  // Used to register dynamic code cache area with the OS
-  // Note: Currently only used in 64 bit Windows implementations
-  static bool register_code_area(char *low, char *high) { return true; }
-
-  static bool is_ActiveCoresMP();
-
-#endif // OS_CPU_LINUX_LOONGARCH_OS_LINUX_LOONGARCH_HPP
+#endif // OS_CPU_LINUX_LOONGARCH_OS_LINUX_LOONGARCH_INLINE_HPP
