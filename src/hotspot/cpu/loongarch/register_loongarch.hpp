@@ -67,7 +67,7 @@ class RegisterImpl: public AbstractRegisterImpl {
 
 REGISTER_IMPL_DECLARATION(Register, RegisterImpl, RegisterImpl::number_of_registers);
 
-// The integer registers of the LOONGARCH architecture
+// The integer registers of the LoongArch architecture
 
 CONSTANT_REGISTER_DECLARATION(Register, noreg, (-1));
 CONSTANT_REGISTER_DECLARATION(Register, r0,    (0));
@@ -429,5 +429,6 @@ class ConcreteRegisterImpl : public AbstractRegisterImpl {
 };
 
 typedef AbstractRegSet<Register> RegSet;
+typedef AbstractRegSet<FloatRegister> FloatRegSet;
 
 #endif //CPU_LOONGARCH_REGISTER_LOONGARCH_HPP
