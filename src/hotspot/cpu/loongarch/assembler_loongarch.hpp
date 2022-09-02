@@ -1602,6 +1602,13 @@ public:
     return false;
   }
 
+  // If x is a vector loadable immediate, return true else return false.
+  static bool is_vec_imm(float x);
+  static bool is_vec_imm(double x);
+  // Return the encoded value.
+  static int get_vec_imm(float x);
+  static int get_vec_imm(double x);
+
   // LoongArch lui is sign extended, so if you wan't to use imm, you have to use the follow
   static int split_low16(int x) {
     return (x & 0xffff);
@@ -1631,6 +1638,12 @@ public:
     return (x & 0xfff);
   }
 
+  static inline void split_simm32(jlong si32, jint& si12, jint& si20) {
+    si12 = ((jint)(si32 & 0xfff) << 20) >> 20;
+    si32 += (si32 & 0x800) << 1;
+    si20 = si32 >> 12;
+  }
+
   static inline void split_simm38(jlong si38, jint& si18, jint& si20) {
     si18 = ((jint)(si38 & 0x3ffff) << 14) >> 14;
     si38 += (si38 & 0x20000) << 1;
@@ -1641,6 +1654,12 @@ public:
   static int simm12(int x) {
     assert(x == (x & 0xFFF), "must be 12-bit only");
     return (x << 20) >> 20;
+  }
+
+  // Convert 13-bit x to a sign-extended 13-bit integer
+  static int simm13(int x) {
+    assert(x == (x & 0x1FFF), "must be 13-bit only");
+    return (x << 19) >> 19;
   }
 
   // Convert 26-bit x to a sign-extended 26-bit integer

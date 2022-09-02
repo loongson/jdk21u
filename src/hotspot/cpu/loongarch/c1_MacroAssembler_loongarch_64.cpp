@@ -105,6 +105,7 @@ int C1_MacroAssembler::lock_object(Register hdr, Register obj, Register disp_hdr
   bnez(hdr, slow_case);
   // done
   bind(done);
+  increment(Address(TREG, JavaThread::held_monitor_count_offset()), 1);
   return null_check_offset;
 }
 
@@ -135,6 +136,7 @@ void C1_MacroAssembler::unlock_object(Register hdr, Register obj, Register disp_
   }
   // done
   bind(done);
+  decrement(Address(TREG, JavaThread::held_monitor_count_offset()), 1);
 }
 
 // Defines obj, preserves var_size_in_bytes
@@ -304,19 +306,19 @@ void C1_MacroAssembler::verified_entry(bool breakAtEntry) {
 }
 
 void C1_MacroAssembler::load_parameter(int offset_in_words, Register reg) {
-  // rbp, + 0: link
-  //      + 1: return address
-  //      + 2: argument with offset 0
-  //      + 3: argument with offset 1
-  //      + 4: ...
+  //  FP + -2: link
+  //     + -1: return address
+  //     +  0: argument with offset 0
+  //     +  1: argument with offset 1
+  //     +  2: ...
 
-  ld_ptr(reg, Address(FP, (offset_in_words + 2) * BytesPerWord));
+  ld_ptr(reg, Address(FP, offset_in_words * BytesPerWord));
 }
 
 #ifndef PRODUCT
 void C1_MacroAssembler::verify_stack_oop(int stack_offset) {
   if (!VerifyOops) return;
-  verify_oop_addr(Address(SP, stack_offset), "oop");
+  verify_oop_addr(Address(SP, stack_offset));
 }
 
 void C1_MacroAssembler::verify_not_null_oop(Register r) {

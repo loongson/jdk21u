@@ -28,15 +28,10 @@
 
 private:
   void pd_initialize() {}
-  bool pd_finalize_stubs() {
-    if (_finalize_stubs) {
-      Unimplemented();
-    }
-    return true;
-  }
+  bool pd_finalize_stubs();
 
 public:
   void flush_bundle(bool start_new_bundle) {}
-  static constexpr bool supports_shared_stubs() { return false; }
+  static constexpr bool supports_shared_stubs() { return true; }
 
 #endif // CPU_LOONGARCH_CODEBUFFER_LOONGARCH_HPP

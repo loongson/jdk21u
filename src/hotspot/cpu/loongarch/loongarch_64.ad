@@ -553,7 +553,7 @@ reg_class all_reg32(
                   /* T7,  AT */
                      T6,
                      T5,
-                  /* T4,  jarl T4 */
+                     T4,
                      T3,
                      T2,
                      T1,
@@ -565,7 +565,8 @@ reg_class all_reg32(
                      A3,
                      A2,
                      A1,
-                     A0 );
+                     A0,
+                     FP );
 
 reg_class int_reg %{
   return _ANY_REG32_mask;
@@ -575,6 +576,10 @@ reg_class no_Ax_int_reg( S7, S0, S1, S2, S4, S3, T8, T2, T3, T1, T6, T5, T0 );
 
 reg_class p_reg %{
   return _PTR_REG_mask;
+%}
+
+reg_class no_CR_reg %{
+  return _NO_CR_REG_mask;
 %}
 
 reg_class no_T8_p_reg(
@@ -625,7 +630,7 @@ reg_class all_reg(
                  /* T7, T7_H,  AT */
                     T6, T6_H,
                     T5, T5_H,
-                 /* T4, T4_H,  jalr  T4    */
+                    T4, T4_H,
                     T3, T3_H,
                     T2, T2_H,
                     T1, T1_H,
@@ -637,7 +642,8 @@ reg_class all_reg(
                     A3, A3_H,
                     A2, A2_H,
                     A1, A1_H,
-                    A0, A0_H
+                    A0, A0_H,
+                    FP, FP_H
                   );
 
 
@@ -812,6 +818,7 @@ source_hpp %{
 extern RegMask _ANY_REG32_mask;
 extern RegMask _ANY_REG_mask;
 extern RegMask _PTR_REG_mask;
+extern RegMask _NO_CR_REG_mask;
 
 class CallStubImpl {
 
@@ -907,6 +914,7 @@ source %{
 RegMask _ANY_REG32_mask;
 RegMask _ANY_REG_mask;
 RegMask _PTR_REG_mask;
+RegMask _NO_CR_REG_mask;
 
 void reg_mask_init() {
   _ANY_REG32_mask = _ALL_REG32_mask;
@@ -915,9 +923,25 @@ void reg_mask_init() {
 
   if (UseCompressedOops && (CompressedOops::ptrs_base() != NULL)) {
     _ANY_REG32_mask.Remove(OptoReg::as_OptoReg(r28->as_VMReg()));
-    _ANY_REG_mask.Remove(OptoReg::as_OptoReg(r28->as_VMReg()));
-    _PTR_REG_mask.Remove(OptoReg::as_OptoReg(r28->as_VMReg()));
+    _ANY_REG_mask.SUBTRACT(_S5_LONG_REG_mask);
+    _PTR_REG_mask.SUBTRACT(_S5_LONG_REG_mask);
   }
+
+  // FP(r22) is not allocatable when PreserveFramePointer is on
+  if (PreserveFramePointer) {
+    _ANY_REG32_mask.Remove(OptoReg::as_OptoReg(r22->as_VMReg()));
+    _ANY_REG_mask.SUBTRACT(_FP_REG_mask);
+    _PTR_REG_mask.SUBTRACT(_FP_REG_mask);
+  }
+
+  if (UseZGC || UseShenandoahGC) {
+    _ANY_REG32_mask.Remove(OptoReg::as_OptoReg(r16->as_VMReg()));
+    _ANY_REG_mask.SUBTRACT(_T4_LONG_REG_mask);
+    _PTR_REG_mask.SUBTRACT(_T4_LONG_REG_mask);
+  }
+
+  _NO_CR_REG_mask = _PTR_REG_mask;
+  _NO_CR_REG_mask.SUBTRACT(_T0_LONG_REG_mask);
 }
 
 void PhaseOutput::pd_perform_mach_node_analysis() {
@@ -1207,12 +1231,17 @@ bool Matcher::is_spillable_arg( int reg ) {
 
 uint Matcher::int_pressure_limit()
 {
-  return (INTPRESSURE == -1) ? 13 : INTPRESSURE;
+  uint default_intpresssure = _ANY_REG32_mask.Size() - 1;
+
+  if (!PreserveFramePointer) {
+    default_intpresssure--;
+  }
+  return (INTPRESSURE == -1) ? default_intpresssure : INTPRESSURE;
 }
 
 uint Matcher::float_pressure_limit()
 {
-  return (FLOATPRESSURE == -1) ? 6 : FLOATPRESSURE;
+  return (FLOATPRESSURE == -1) ? _FLT_REG_mask.Size() : FLOATPRESSURE;
 }
 
 bool Matcher::use_asm_for_ldiv_by_con( jlong divisor ) {
@@ -1832,11 +1861,16 @@ void MachEpilogNode::format( PhaseRegAlloc *ra_, outputStream* st ) const {
 
   assert((framesize & (StackAlignmentInBytes-1)) == 0, "frame size not aligned");
 
-  st->print_cr("addi_d   SP, SP, %d # Rlease stack @ MachEpilogNode", framesize);
-  st->print("\t");
   st->print_cr("ld_d    RA, SP, %d # Restore RA @ MachEpilogNode", -wordSize);
   st->print("\t");
   st->print_cr("ld_d    FP, SP, %d # Restore FP @ MachEpilogNode", -wordSize*2);
+  st->print("\t");
+  if (Assembler::is_simm(framesize, 12)) {
+    st->print_cr("addi_d   SP, SP, %d # Rlease stack @ MachEpilogNode", framesize);
+  } else {
+    st->print_cr("li   AT, %d # Rlease stack @ MachEpilogNode", framesize);
+    st->print_cr("add_d   SP, SP, AT # Rlease stack @ MachEpilogNode");
+  }
   if( do_polling() && C->is_method_compilation() ) {
     st->print("\t");
     st->print_cr("ld_d    AT, poll_offset[thread] #polling_word_offset\n\t"
@@ -1853,14 +1887,7 @@ void MachEpilogNode::emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const {
 
   assert((framesize & (StackAlignmentInBytes-1)) == 0, "frame size not aligned");
 
-  __ ld_d(RA, Address(SP, framesize - wordSize));
-  __ ld_d(FP, Address(SP, framesize - wordSize * 2));
-  if (Assembler::is_simm(framesize, 12)) {
-    __ addi_d(SP, SP, framesize);
-  } else {
-    __ li(AT, framesize);
-    __ add_d(SP, SP, AT);
-  }
+  __ remove_frame(framesize);
 
   if (StackReservedPages > 0 && C->has_reserved_stack_access()) {
     __ reserved_stack_check();
@@ -2048,7 +2075,14 @@ void MachPrologNode::format( PhaseRegAlloc *ra_, outputStream* st ) const {
   }
   st->print("st_d       RA, %d(SP)  @ MachPrologNode\n\t", -wordSize);
   st->print("st_d       FP, %d(SP)  @ MachPrologNode\n\t", -wordSize*2);
-  st->print("addi_d   FP, SP, -%d \n\t", wordSize*2);
+  if (PreserveFramePointer) {
+    if (Assembler::is_simm((framesize - wordSize * 2), 12)) {
+      st->print("addi_d   FP, SP, %d \n\t", framesize);
+    } else {
+      st->print("li   AT, %d \n\t", framesize);
+      st->print("add_d   FP, AT \n\t");
+    }
+  }
   st->print("addi_d   SP, SP, -%d \t",framesize);
   if (C->stub_function() == NULL && BarrierSet::barrier_set()->barrier_set_nmethod() != NULL) {
     st->print("\n\t");
@@ -2095,20 +2129,7 @@ void MachPrologNode::emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const {
     __ generate_stack_overflow_check(bangsize);
   }
 
-  if (Assembler::is_simm(-framesize, 12)) {
-    __ addi_d(SP, SP, -framesize);
-  } else {
-    __ li(AT, -framesize);
-    __ add_d(SP, SP, AT);
-  }
-  __ st_d(RA, Address(SP, framesize - wordSize));
-  __ st_d(FP, Address(SP, framesize - wordSize * 2));
-  if (Assembler::is_simm((framesize - wordSize * 2), 12)) {
-    __ addi_d(FP, SP, framesize - wordSize * 2);
-  } else {
-    __ li(AT, framesize - wordSize * 2);
-    __ add_d(FP, SP, AT);
-  }
+  __ build_frame(framesize);
 
   assert((__ pc() - start) >= 1 * BytesPerInstWord, "No enough room for patch_verified_entry");
 
@@ -2330,11 +2351,17 @@ encode %{
         ciEnv::current()->record_failure("CodeCache is full");
         return;
       }
-      // Emit stub for static call
-      address stub = CompiledStaticCall::emit_to_interp_stub(cbuf);
-      if (stub == NULL) {
-        ciEnv::current()->record_failure("CodeCache is full");
-        return;
+      if (CodeBuffer::supports_shared_stubs() && _method->can_be_statically_bound()) {
+        // Calls of the same statically bound method can share
+        // a stub to the interpreter.
+        cbuf.shared_stub_to_interp_for(_method, cbuf.insts()->mark_off());
+      } else {
+        // Emit stub for static call
+        address stub = CompiledStaticCall::emit_to_interp_stub(cbuf);
+        if (stub == NULL) {
+          ciEnv::current()->record_failure("CodeCache is full");
+          return;
+        }
       }
     }
   %}
@@ -2354,12 +2381,12 @@ encode %{
   %}
 
 
-  enc_class enc_PartialSubtypeCheck(mRegP result, mRegP sub, mRegP super, mRegI tmp) %{
+  enc_class enc_PartialSubtypeCheck(mRegP result, mRegP sub, mRegP super, mRegI tmp, mRegI tmp2) %{
     Register result = $result$$Register;
     Register sub    = $sub$$Register;
     Register super  = $super$$Register;
     Register length = $tmp$$Register;
-    Register tmp    = T4;
+    Register tmp    = $tmp2$$Register;
     Label miss;
 
     // result may be the same as sub
@@ -3023,6 +3050,15 @@ operand immF_0() %{
   interface(CONST_INTER);
 %}
 
+operand immFVec() %{
+  predicate(UseLSX && Assembler::is_vec_imm(n->getf()));
+  match(ConF);
+
+  op_cost(5);
+  format %{ %}
+  interface(CONST_INTER);
+%}
+
 // Double-precision floating-point immediate
 operand immD() %{
   match(ConD);
@@ -3035,6 +3071,15 @@ operand immD() %{
 // Double-precision floating-point zero
 operand immD_0() %{
   predicate(jlong_cast(n->getd()) == 0);
+  match(ConD);
+
+  op_cost(5);
+  format %{ %}
+  interface(CONST_INTER);
+%}
+
+operand immDVec() %{
+  predicate(UseLSX && Assembler::is_vec_imm(n->getd()));
   match(ConD);
 
   op_cost(5);
@@ -3444,6 +3489,15 @@ operand mRegP() %{
   constraint(ALLOC_IN_RC(p_reg));
   match(RegP);
   match(a0_RegP);
+
+  format %{  %}
+  interface(REG_INTER);
+%}
+
+operand no_CR_mRegP() %{
+  constraint(ALLOC_IN_RC(no_CR_reg));
+  match(RegP);
+  match(mRegP);
 
   format %{  %}
   interface(REG_INTER);
@@ -8246,9 +8300,9 @@ instruct cmpD3_reg_reg(mRegI dst, regD src1, regD src2) %{
   ins_pipe( pipe_slow );
 %}
 
-instruct clear_array(t8RegL cnt, t3_RegP base, Universe dummy) %{
+instruct clear_array(t8RegL cnt, t3_RegP base, Universe dummy, mRegI tmp) %{
   match(Set dummy (ClearArray cnt base));
-  effect(USE_KILL base);
+  effect(USE_KILL base, TEMP tmp);
   format %{ "CLEAR_ARRAY base = $base, cnt = $cnt # Clear doublewords" %}
   ins_encode %{
     // Assume cnt is the number of bytes in an array to be cleared,
@@ -8256,7 +8310,7 @@ instruct clear_array(t8RegL cnt, t3_RegP base, Universe dummy) %{
     Register base = $base$$Register;
     Register cnt = $cnt$$Register;
     Register end = SCR1;
-    Register tmp = SCR2;
+    Register tmp = $tmp$$Register;
     FloatRegister zero = fscratch;
     Label inthead, intloop, done;
     Label loop, lt16, lt32;
@@ -8368,10 +8422,10 @@ instruct clear_array_imm(immL cnt, t3_RegP base, Universe dummy) %{
   ins_pipe( pipe_slow );
 %}
 
-instruct clear_array_imm_lsx(immL_gt_7 cnt, t3_RegP base, Universe dummy) %{
+instruct clear_array_imm_lsx(immL_gt_7 cnt, t3_RegP base, Universe dummy, mRegI tmp) %{
   predicate(UseLSX);
   match(Set dummy (ClearArray cnt base));
-  effect(USE_KILL base);
+  effect(USE_KILL base, TEMP tmp);
   ins_cost(80);
   format %{ "CLEAR_ARRAY base = $base, cnt = $cnt # Clear doublewords by LSX" %}
   ins_encode %{
@@ -8379,7 +8433,7 @@ instruct clear_array_imm_lsx(immL_gt_7 cnt, t3_RegP base, Universe dummy) %{
     // and base points to the starting address of the array.
     Register base = $base$$Register;
     Register end = SCR1;
-    Register tmp = SCR2;
+    Register tmp = $tmp$$Register;
     FloatRegister zero = fscratch;
     long cnt  = $cnt$$constant;
     Label loop, lt16;
@@ -8412,10 +8466,10 @@ instruct clear_array_imm_lsx(immL_gt_7 cnt, t3_RegP base, Universe dummy) %{
   ins_pipe(pipe_slow);
 %}
 
-instruct clear_array_imm_lasx(immL_gt_15 cnt, t3_RegP base, Universe dummy) %{
+instruct clear_array_imm_lasx(immL_gt_15 cnt, t3_RegP base, Universe dummy, mRegI tmp) %{
   predicate(UseLASX && false);
   match(Set dummy (ClearArray cnt base));
-  effect(USE_KILL base);
+  effect(USE_KILL base, TEMP tmp);
   ins_cost(60);
   format %{ "CLEAR_ARRAY base = $base, cnt = $cnt # Clear doublewords by LASX" %}
   ins_encode %{
@@ -8423,7 +8477,7 @@ instruct clear_array_imm_lasx(immL_gt_15 cnt, t3_RegP base, Universe dummy) %{
     // and base points to the starting address of the array.
     Register base = $base$$Register;
     Register end = SCR1;
-    Register tmp = SCR2;
+    Register tmp = $tmp$$Register;
     FloatRegister zero = fscratch;
     long cnt  = $cnt$$constant;
     Label loop, lt32;
@@ -10974,6 +11028,19 @@ instruct loadConF(regF dst, immF src) %{
   ins_pipe( fpu_loadF );
 %}
 
+instruct loadConFVec(regF dst, immFVec src) %{
+  match(Set dst src);
+  ins_cost(50);
+
+  format %{ "vldi  $dst, $src # load FLOAT $src @ loadConFVec" %}
+  ins_encode %{
+    int val = Assembler::get_vec_imm($src$$constant);
+
+    __ vldi($dst$$FloatRegister, val);
+  %}
+  ins_pipe( fpu_loadF );
+%}
+
 
 instruct loadConD_immD_0(regD dst, immD_0 zero) %{
   match(Set dst zero);
@@ -11002,6 +11069,19 @@ instruct loadConD(regD dst, immD src) %{
       __ li(AT, con_offset);
       __ fldx_d($dst$$FloatRegister, $constanttablebase, AT);
     }
+  %}
+  ins_pipe( fpu_loadF );
+%}
+
+instruct loadConDVec(regD dst, immDVec src) %{
+  match(Set dst src);
+  ins_cost(50);
+
+  format %{ "vldi  $dst, $src # load DOUBLE $src @ loadConDVec" %}
+  ins_encode %{
+    int val = Assembler::get_vec_imm($src$$constant);
+
+    __ vldi($dst$$FloatRegister, val);
   %}
   ins_pipe( fpu_loadF );
 %}
@@ -11206,30 +11286,30 @@ instruct storeSSD(stackSlotD dst, regD src)
   ins_pipe(fpu_storeF);
 %}
 
-instruct cmpFastLock(FlagsReg cr, mRegP object, mRegP box, mRegI tmp, mRegI scr) %{
+instruct cmpFastLock(FlagsReg cr, no_CR_mRegP object, no_CR_mRegP box, no_CR_mRegP tmp1, no_CR_mRegP tmp2) %{
   match(Set cr (FastLock object box));
-  effect(TEMP tmp, TEMP scr);
-  ins_cost(300);
-  format %{ "FASTLOCK $cr <-- $object, $box, $tmp, $scr #@ cmpFastLock" %}
+  effect(TEMP tmp1, TEMP tmp2);
+
+  format %{ "FASTLOCK $cr <-- $object, $box, $tmp1, $tmp2 #@ cmpFastLock" %}
+
   ins_encode %{
-    __ fast_lock($object$$Register, $box$$Register, $cr$$Register, $tmp$$Register, $scr$$Register);
+    __ fast_lock($object$$Register, $box$$Register, $cr$$Register, $tmp1$$Register, $tmp2$$Register);
   %}
 
   ins_pipe( pipe_slow );
-  ins_pc_relative(1);
 %}
 
-instruct cmpFastUnlock(FlagsReg cr, mRegP object, mRegP box, mRegI tmp, mRegI scr) %{
+instruct cmpFastUnlock(FlagsReg cr, no_CR_mRegP object, no_CR_mRegP box, no_CR_mRegP tmp1, no_CR_mRegP tmp2) %{
   match(Set cr (FastUnlock object box));
-  effect(TEMP tmp, TEMP scr);
-  ins_cost(300);
-  format %{ "FASTUNLOCK $cr <-- $object, $box, $tmp #@cmpFastUnlock" %}
+  effect(TEMP tmp1, TEMP tmp2);
+
+  format %{ "FASTUNLOCK $cr <-- $object, $box, $tmp1, $tmp2 #@ cmpFastUnlock" %}
+
   ins_encode %{
-    __ fast_unlock($object$$Register, $box$$Register, $cr$$Register, $tmp$$Register, $scr$$Register);
+    __ fast_unlock($object$$Register, $box$$Register, $cr$$Register, $tmp1$$Register, $tmp2$$Register);
   %}
 
   ins_pipe( pipe_slow );
-  ins_pc_relative(1);
 %}
 
 // Store CMS card-mark Immediate 0
@@ -11308,13 +11388,13 @@ instruct leaPIdxScale(mRegP dst, mRegP reg, mRegLorI2L lreg, immI_0_3 scale)
 // array for an instance of the superklass.  Set a hidden internal cache on a
 // hit (cache is checked with exposed code in gen_subtype_check()).  Return
 // NZ for a miss or zero for a hit.  The encoding ALSO sets flags.
-instruct partialSubtypeCheck( mRegP result, no_T8_mRegP sub, no_T8_mRegP super, mT8RegI tmp ) %{
+instruct partialSubtypeCheck( mRegP result, no_T8_mRegP sub, no_T8_mRegP super, mRegI tmp2,  mT8RegI tmp ) %{
   match(Set result (PartialSubtypeCheck sub super));
-  effect(KILL tmp);
+  effect(KILL tmp, TEMP tmp2);
   ins_cost(1100);  // slightly larger than the next version
   format %{ "partialSubtypeCheck result=$result, sub=$sub, super=$super, tmp=$tmp " %}
 
-  ins_encode( enc_PartialSubtypeCheck(result, sub, super, tmp) );
+  ins_encode( enc_PartialSubtypeCheck(result, sub, super, tmp, tmp2) );
   ins_pipe( pipe_slow );
 %}
 

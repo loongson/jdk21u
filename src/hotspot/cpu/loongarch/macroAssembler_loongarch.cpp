@@ -156,6 +156,24 @@ void MacroAssembler::pd_patch_instruction(address branch, address target, const 
     MacroAssembler masm(&cb);
     masm.pcaddi(as_Register(low(stub_inst, 5)), offs);
     return;
+  } else if (high(stub_inst, 7) == pcaddu12i_op) {
+    // pc-relative
+    jlong offs = target - branch;
+    guarantee(is_simm(offs, 32), "Not signed 32-bit offset");
+    jint si12, si20;
+    jint& stub_instNext = *(jint*)(branch+4);
+    split_simm32(offs, si12, si20);
+    CodeBuffer cb(branch, 2 * BytesPerInstWord);
+    MacroAssembler masm(&cb);
+    masm.pcaddu12i(as_Register(low(stub_inst, 5)), si20);
+    masm.addi_d(as_Register(low((stub_instNext), 5)), as_Register(low((stub_instNext) >> 5, 5)), si12);
+    return;
+  } else if (high(stub_inst, 7) == lu12i_w_op) {
+    // long call (absolute)
+    CodeBuffer cb(branch, 3 * BytesPerInstWord);
+    MacroAssembler masm(&cb);
+    masm.call_long(target);
+    return;
   }
 
   stub_inst = patched_branch(target - branch, stub_inst, 0);
@@ -172,8 +190,8 @@ void MacroAssembler::patchable_jump_far(Register ra, jlong offs) {
   jint si18, si20;
   guarantee(is_simm(offs, 38), "Not signed 38-bit offset");
   split_simm38(offs, si18, si20);
-  pcaddu18i(T4, si20);
-  jirl(ra, T4, si18);
+  pcaddu18i(AT, si20);
+  jirl(ra, AT, si18);
 }
 
 void MacroAssembler::patchable_jump(address target, bool force_patchable) {
@@ -276,9 +294,9 @@ address MacroAssembler::emit_trampoline_stub(int insts_call_instruction_offset,
   // Now, create the trampoline stub's code:
   // - load the call
   // - call
-  pcaddi(T4, 0);
-  ld_d(T4, T4, 16);
-  jr(T4);
+  pcaddi(AT, 0);
+  ld_d(AT, AT, 16);
+  jr(AT);
   nop();  //align
   assert(offset() - stub_start_offset == NativeCallTrampolineStub::data_offset,
          "should be");
@@ -660,9 +678,9 @@ void MacroAssembler::call(address entry, RelocationHolder& rh){
 
 void MacroAssembler::call_long(address entry) {
   jlong value = (jlong)entry;
-  lu12i_w(T4, split_low20(value >> 12));
-  lu32i_d(T4, split_low20(value >> 32));
-  jirl(RA, T4, split_low12(value));
+  lu12i_w(AT, split_low20(value >> 12));
+  lu32i_d(AT, split_low20(value >> 32));
+  jirl(RA, AT, split_low12(value));
 }
 
 address MacroAssembler::ic_call(address entry, jint method_index) {
@@ -671,6 +689,17 @@ address MacroAssembler::ic_call(address entry, jint method_index) {
   assert(entry != NULL, "call most probably wrong");
   InstructionMark im(this);
   return trampoline_call(AddressLiteral(entry, rh));
+}
+
+void MacroAssembler::emit_static_call_stub() {
+  // Code stream for loading method may be changed.
+  ibar(0);
+
+  // static stub relocation also tags the Method* in the code-stream.
+  mov_metadata(Rmethod, NULL);
+  // This is recognized as unresolved by relocs/nativeInst/ic code
+
+  patchable_jump(pc());
 }
 
 void MacroAssembler::c2bool(Register r) {
@@ -969,11 +998,11 @@ void MacroAssembler::null_check(Register reg, int offset) {
 
 void MacroAssembler::enter() {
   push2(RA, FP);
-  move(FP, SP);
+  addi_d(FP, SP, 2 * wordSize);
 }
 
 void MacroAssembler::leave() {
-  move(SP, FP);
+  addi_d(SP, FP, -2 * wordSize);
   pop2(RA, FP);
 }
 
@@ -985,13 +1014,13 @@ void MacroAssembler::build_frame(int framesize) {
     st_ptr(FP, Address(SP, framesize - 2 * wordSize));
     st_ptr(RA, Address(SP, framesize - 1 * wordSize));
     if (PreserveFramePointer)
-      addi_d(FP, SP, framesize - 2 * wordSize);
+      addi_d(FP, SP, framesize);
   } else {
     addi_d(SP, SP, -2 * wordSize);
     st_ptr(FP, Address(SP, 0 * wordSize));
     st_ptr(RA, Address(SP, 1 * wordSize));
     if (PreserveFramePointer)
-      move(FP, SP);
+      addi_d(FP, SP, 2 * wordSize);
     li(SCR1, framesize - 2 * wordSize);
     sub_d(SP, SP, SCR1);
   }
@@ -1310,13 +1339,16 @@ void MacroAssembler::load_mirror(Register mirror, Register method, Register tmp)
   resolve_oop_handle(mirror, tmp);
 }
 
-void MacroAssembler::verify_oop(Register reg, const char* s) {
+void MacroAssembler::_verify_oop(Register reg, const char* s, const char* file, int line) {
   if (!VerifyOops) return;
 
   const char * b = NULL;
-  stringStream ss;
-  ss.print("verify_oop: %s: %s", reg->name(), s);
-  b = code_string(ss.as_string());
+  {
+    ResourceMark rm;
+    stringStream ss;
+    ss.print("verify_oop: %s: %s (%s:%d)", reg->name(), s, file, line);
+    b = code_string(ss.as_string());
+  }
 
   addi_d(SP, SP, -6 * wordSize);
   st_ptr(SCR1, Address(SP, 0 * wordSize));
@@ -1339,14 +1371,14 @@ void MacroAssembler::verify_oop(Register reg, const char* s) {
   addi_d(SP, SP, 6 * wordSize);
 }
 
-void MacroAssembler::verify_oop_addr(Address addr, const char* s) {
+void MacroAssembler::_verify_oop_addr(Address addr, const char* s, const char* file, int line) {
   if (!VerifyOops) return;
 
   const char* b = NULL;
   {
     ResourceMark rm;
     stringStream ss;
-    ss.print("verify_oop_addr: %s", s);
+    ss.print("verify_oop_addr: %s (%s:%d)", s, file, line);
     b = code_string(ss.as_string());
   }
 
@@ -1386,7 +1418,7 @@ void MacroAssembler::verify_oop_subroutine() {
   // A0: char* error message
   // A1: oop   object to verify
   Label exit, error;
-  // increment counter
+  // increment counter, SCR2 has be saved in caller verify_oop
   li(SCR2, (long)StubRoutines::verify_oop_count_addr());
   ld_w(SCR1, SCR2, 0);
   addi_d(SCR1, SCR1, 1);
@@ -1868,7 +1900,7 @@ void MacroAssembler::encode_heap_oop(Register r) {
 #ifdef ASSERT
   verify_heapbase("MacroAssembler::encode_heap_oop:heap base corrupted?");
 #endif
-  verify_oop(r, "broken oop in encode_heap_oop");
+  verify_oop_msg(r, "broken oop in encode_heap_oop");
   if (CompressedOops::base() == NULL) {
     if (CompressedOops::shift() != 0) {
       assert(LogMinObjAlignmentInBytes == CompressedOops::shift(), "decode alg wrong");
@@ -1889,7 +1921,7 @@ void MacroAssembler::encode_heap_oop(Register dst, Register src) {
 #ifdef ASSERT
   verify_heapbase("MacroAssembler::encode_heap_oop:heap base corrupted?");
 #endif
-  verify_oop(src, "broken oop in encode_heap_oop");
+  verify_oop_msg(src, "broken oop in encode_heap_oop");
   if (CompressedOops::base() == NULL) {
     if (CompressedOops::shift() != 0) {
       assert(LogMinObjAlignmentInBytes == CompressedOops::shift(), "decode alg wrong");
@@ -1920,7 +1952,7 @@ void MacroAssembler::encode_heap_oop_not_null(Register r) {
     bind(ok);
   }
 #endif
-  verify_oop(r, "broken oop in encode_heap_oop_not_null");
+  verify_oop_msg(r, "broken oop in encode_heap_oop_not_null");
   if (CompressedOops::base() != NULL) {
     sub_d(r, r, S5_heapbase);
   }
@@ -1941,7 +1973,7 @@ void MacroAssembler::encode_heap_oop_not_null(Register dst, Register src) {
     bind(ok);
   }
 #endif
-  verify_oop(src, "broken oop in encode_heap_oop_not_null2");
+  verify_oop_msg(src, "broken oop in encode_heap_oop_not_null2");
   if (CompressedOops::base() == NULL) {
     if (CompressedOops::shift() != 0) {
       assert(LogMinObjAlignmentInBytes == CompressedOops::shift(), "decode alg wrong");
@@ -1986,7 +2018,7 @@ void MacroAssembler::decode_heap_oop(Register r) {
     add_d(r, r, S5_heapbase);
   }
   maskeqz(r, r, AT);
-  verify_oop(r, "broken oop in decode_heap_oop");
+  verify_oop_msg(r, "broken oop in decode_heap_oop");
 }
 
 void MacroAssembler::decode_heap_oop(Register dst, Register src) {
@@ -2024,7 +2056,7 @@ void MacroAssembler::decode_heap_oop(Register dst, Register src) {
     add_d(dst, src, S5_heapbase);
   }
   maskeqz(dst, dst, cond);
-  verify_oop(dst, "broken oop in decode_heap_oop");
+  verify_oop_msg(dst, "broken oop in decode_heap_oop");
 }
 
 void MacroAssembler::decode_heap_oop_not_null(Register r) {
@@ -2417,7 +2449,7 @@ void MacroAssembler::clinit_barrier(Register klass, Register scratch, Label* L_f
 void MacroAssembler::get_vm_result(Register oop_result, Register java_thread) {
   ld_d(oop_result, Address(java_thread, JavaThread::vm_result_offset()));
   st_d(R0, Address(java_thread, JavaThread::vm_result_offset()));
-  verify_oop(oop_result, "broken oop in call_VM_base");
+  verify_oop_msg(oop_result, "broken oop in call_VM_base");
 }
 
 void MacroAssembler::get_vm_result_2(Register metadata_result, Register java_thread) {
