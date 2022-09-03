@@ -563,15 +563,26 @@ class MacroAssembler: public Assembler {
   void pop2 ()                  { addi_d(SP, SP, 16); }
   void push2(Register reg1, Register reg2);
   void pop2 (Register reg1, Register reg2);
-  //we need 2 fun to save and resotre general register
-  void pushad();
-  void popad();
-  void pushad_except_v0();
-  void popad_except_v0();
+  // Push and pop everything that might be clobbered by a native
+  // runtime call except SCR1 and SCR2.  (They are always scratch,
+  // so we don't have to protect them.)  Only save the lower 64 bits
+  // of each vector register. Additional registers can be excluded
+  // in a passed RegSet.
+  void push_call_clobbered_registers_except(RegSet exclude);
+  void pop_call_clobbered_registers_except(RegSet exclude);
+
+  void push_call_clobbered_registers() {
+    push_call_clobbered_registers_except(RegSet());
+  }
+  void pop_call_clobbered_registers() {
+    pop_call_clobbered_registers_except(RegSet());
+  }
   void push(RegSet regs) { if (regs.bits()) push(regs.bits()); }
   void pop(RegSet regs) { if (regs.bits()) pop(regs.bits()); }
   void push_fpu(FloatRegSet regs) { if (regs.bits()) push_fpu(regs.bits()); }
   void pop_fpu(FloatRegSet regs) { if (regs.bits()) pop_fpu(regs.bits()); }
+  void push_vp(FloatRegSet regs) { if (regs.bits()) push_vp(regs.bits()); }
+  void pop_vp(FloatRegSet regs) { if (regs.bits()) pop_vp(regs.bits()); }
 
   void li(Register rd, jlong value);
   void li(Register rd, address addr) { li(rd, (long)addr); }
@@ -590,7 +601,7 @@ class MacroAssembler: public Assembler {
   Address argument_address(RegisterOrConstant arg_slot, int extra_slot_offset = 0);
 
 
-// LA added:
+  // LA added:
   void jr  (Register reg)        { jirl(R0, reg, 0); }
   void jalr(Register reg)        { jirl(RA, reg, 0); }
   void nop ()                    { andi(R0, R0, 0); }
@@ -690,6 +701,8 @@ private:
   void pop(unsigned int bitset);
   void push_fpu(unsigned int bitset);
   void pop_fpu(unsigned int bitset);
+  void push_vp(unsigned int bitset);
+  void pop_vp(unsigned int bitset);
 
   // Check the current thread doesn't need a cross modify fence.
   void verify_cross_modify_fence_not_required() PRODUCT_RETURN;
