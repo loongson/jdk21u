@@ -221,43 +221,32 @@ void MacroAssembler::patchable_call(address target, address call_site) {
   }
 }
 
-// Maybe emit a call via a trampoline.  If the code cache is small
+// Maybe emit a call via a trampoline. If the code cache is small
 // trampolines won't be emitted.
+address MacroAssembler::trampoline_call(AddressLiteral entry, CodeBuffer* cbuf) {
+  assert(entry.rspec().type() == relocInfo::runtime_call_type ||
+         entry.rspec().type() == relocInfo::opt_virtual_call_type ||
+         entry.rspec().type() == relocInfo::static_call_type ||
+         entry.rspec().type() == relocInfo::virtual_call_type, "wrong reloc type");
 
-address MacroAssembler::trampoline_call(AddressLiteral entry, CodeBuffer *cbuf) {
-  assert(JavaThread::current()->is_Compiler_thread(), "just checking");
-  assert(entry.rspec().type() == relocInfo::runtime_call_type
-         || entry.rspec().type() == relocInfo::opt_virtual_call_type
-         || entry.rspec().type() == relocInfo::static_call_type
-         || entry.rspec().type() == relocInfo::virtual_call_type, "wrong reloc type");
+  address target = entry.target();
 
   // We need a trampoline if branches are far.
   if (far_branches()) {
-    bool in_scratch_emit_size = false;
-#ifdef COMPILER2
-    // We don't want to emit a trampoline if C2 is generating dummy
-    // code during its branch shortening phase.
-    CompileTask* task = ciEnv::current()->task();
-    in_scratch_emit_size =
-      (task != NULL && is_c2_compile(task->comp_level()) &&
-       Compile::current()->output()->in_scratch_emit_size());
-#endif
-    if (!in_scratch_emit_size) {
-      address stub = emit_trampoline_stub(offset(), entry.target());
+    if (!in_scratch_emit_size()) {
+      address stub = emit_trampoline_stub(offset(), target);
       if (stub == NULL) {
         postcond(pc() == badAddress);
         return NULL; // CodeCache is full
       }
     }
+    target = pc();
   }
 
-  if (cbuf) cbuf->set_insts_mark();
+  if (cbuf != NULL) { cbuf->set_insts_mark(); }
   relocate(entry.rspec());
-  if (!far_branches()) {
-    bl(entry.target());
-  } else {
-    bl(pc());
-  }
+  bl(target);
+
   // just need to return a non-null address
   postcond(pc() != badAddress);
   return pc();
@@ -443,14 +432,6 @@ void MacroAssembler::b_far(address entry) {
   } else {                                 // Far jump
     patchable_jump_far(R0, offs);
   }
-}
-
-void MacroAssembler::ld_ptr(Register rt, Register base, Register offset) {
-  ldx_d(rt, base, offset);
-}
-
-void MacroAssembler::st_ptr(Register rt, Register base, Register offset) {
-  stx_d(rt, base, offset);
 }
 
 Address MacroAssembler::as_Address(AddressLiteral adr) {
@@ -762,9 +743,9 @@ void MacroAssembler::decrement(Register reg, int imm) {
 void MacroAssembler::increment(Address addr, int imm) {
   if (!imm) return;
   assert(is_simm(imm, 12), "must be");
-  ld_ptr(AT, addr);
+  ld_d(AT, addr);
   addi_d(AT, AT, imm);
-  st_ptr(AT, addr);
+  st_d(AT, addr);
 }
 
 void MacroAssembler::decrement(Address addr, int imm) {
@@ -895,7 +876,7 @@ void MacroAssembler::call_VM_base(Register oop_result,
 #endif
 
   // discard thread and arguments
-  ld_ptr(SP, java_thread, in_bytes(JavaThread::last_Java_sp_offset()));
+  ld_d(SP, Address(java_thread, JavaThread::last_Java_sp_offset()));
   // reset last Java frame
   reset_last_Java_frame(java_thread, false);
 
@@ -1011,14 +992,14 @@ void MacroAssembler::build_frame(int framesize) {
   assert(framesize % (2 * wordSize) == 0, "must preserve 2 * wordSize alignment");
   if (Assembler::is_simm(-framesize, 12)) {
     addi_d(SP, SP, -framesize);
-    st_ptr(FP, Address(SP, framesize - 2 * wordSize));
-    st_ptr(RA, Address(SP, framesize - 1 * wordSize));
+    st_d(FP, Address(SP, framesize - 2 * wordSize));
+    st_d(RA, Address(SP, framesize - 1 * wordSize));
     if (PreserveFramePointer)
       addi_d(FP, SP, framesize);
   } else {
     addi_d(SP, SP, -2 * wordSize);
-    st_ptr(FP, Address(SP, 0 * wordSize));
-    st_ptr(RA, Address(SP, 1 * wordSize));
+    st_d(FP, Address(SP, 0 * wordSize));
+    st_d(RA, Address(SP, 1 * wordSize));
     if (PreserveFramePointer)
       addi_d(FP, SP, 2 * wordSize);
     li(SCR1, framesize - 2 * wordSize);
@@ -1031,14 +1012,14 @@ void MacroAssembler::remove_frame(int framesize) {
   assert(framesize >= 2 * wordSize, "framesize must include space for FP/RA");
   assert(framesize % (2*wordSize) == 0, "must preserve 2*wordSize alignment");
   if (Assembler::is_simm(framesize, 12)) {
-    ld_ptr(FP, Address(SP, framesize - 2 * wordSize));
-    ld_ptr(RA, Address(SP, framesize - 1 * wordSize));
+    ld_d(FP, Address(SP, framesize - 2 * wordSize));
+    ld_d(RA, Address(SP, framesize - 1 * wordSize));
     addi_d(SP, SP, framesize);
   } else {
     li(SCR1, framesize - 2 * wordSize);
     add_d(SP, SP, SCR1);
-    ld_ptr(FP, Address(SP, 0 * wordSize));
-    ld_ptr(RA, Address(SP, 1 * wordSize));
+    ld_d(FP, Address(SP, 0 * wordSize));
+    ld_d(RA, Address(SP, 1 * wordSize));
     addi_d(SP, SP, 2 * wordSize);
   }
 }
@@ -1078,15 +1059,15 @@ void MacroAssembler::reset_last_Java_frame(Register java_thread, bool clear_fp) 
     java_thread = TREG;
   }
   // we must set sp to zero to clear frame
-  st_ptr(R0, java_thread, in_bytes(JavaThread::last_Java_sp_offset()));
+  st_d(R0, Address(java_thread, JavaThread::last_Java_sp_offset()));
   // must clear fp, so that compiled frames are not confused; it is possible
   // that we need it only for debugging
   if(clear_fp) {
-    st_ptr(R0, java_thread, in_bytes(JavaThread::last_Java_fp_offset()));
+    st_d(R0, Address(java_thread, JavaThread::last_Java_fp_offset()));
   }
 
   // Always clear the pc because it could have been set by make_walkable()
-  st_ptr(R0, java_thread, in_bytes(JavaThread::last_Java_pc_offset()));
+  st_d(R0, Address(java_thread, JavaThread::last_Java_pc_offset()));
 }
 
 void MacroAssembler::reset_last_Java_frame(bool clear_fp) {
@@ -1140,15 +1121,15 @@ void MacroAssembler::set_last_Java_frame(Register java_thread,
 
   // last_java_fp is optional
   if (last_java_fp->is_valid()) {
-    st_ptr(last_java_fp, java_thread, in_bytes(JavaThread::last_Java_fp_offset()));
+    st_d(last_java_fp, Address(java_thread, JavaThread::last_Java_fp_offset()));
   }
 
   // last_java_pc
   lipc(AT, last_java_pc);
-  st_ptr(AT, java_thread, in_bytes(JavaThread::frame_anchor_offset() +
-                                   JavaFrameAnchor::last_Java_pc_offset()));
+  st_d(AT, Address(java_thread, JavaThread::frame_anchor_offset() +
+                                JavaFrameAnchor::last_Java_pc_offset()));
 
-  st_ptr(last_java_sp, java_thread, in_bytes(JavaThread::last_Java_sp_offset()));
+  st_d(last_java_sp, Address(java_thread, JavaThread::last_Java_sp_offset()));
 }
 
 void MacroAssembler::set_last_Java_frame(Register last_java_sp,
@@ -1167,16 +1148,16 @@ void MacroAssembler::set_last_Java_frame(Register last_java_sp,
 
   // last_java_fp is optional
   if (last_java_fp->is_valid()) {
-    st_ptr(last_java_fp, TREG, in_bytes(JavaThread::last_Java_fp_offset()));
+    st_d(last_java_fp, Address(TREG, JavaThread::last_Java_fp_offset()));
   }
 
   // last_java_pc is optional
   if (last_java_pc->is_valid()) {
-    st_ptr(last_java_pc, TREG, in_bytes(JavaThread::frame_anchor_offset() +
-                                               JavaFrameAnchor::last_Java_pc_offset()));
+    st_d(last_java_pc, Address(TREG, JavaThread::frame_anchor_offset() +
+                                     JavaFrameAnchor::last_Java_pc_offset()));
   }
 
-  st_ptr(last_java_sp, TREG, in_bytes(JavaThread::last_Java_sp_offset()));
+  st_d(last_java_sp, Address(TREG, JavaThread::last_Java_sp_offset()));
 }
 
 // Defines obj, preserves var_size_in_bytes, okay for t2 == var_size_in_bytes.
@@ -1198,13 +1179,13 @@ void MacroAssembler::incr_allocated_bytes(Register thread,
     thread = TREG;
   }
 
-  ld_ptr(AT, thread, in_bytes(JavaThread::allocated_bytes_offset()));
+  ld_d(AT, Address(thread, JavaThread::allocated_bytes_offset()));
   if (var_size_in_bytes->is_valid()) {
     add_d(AT, AT, var_size_in_bytes);
   } else {
     addi_d(AT, AT, con_size_in_bytes);
   }
-  st_ptr(AT, thread, in_bytes(JavaThread::allocated_bytes_offset()));
+  st_d(AT, Address(thread, JavaThread::allocated_bytes_offset()));
 }
 
 void MacroAssembler::li(Register rd, jlong value) {
@@ -1330,12 +1311,10 @@ void MacroAssembler::resolve_weak_handle(Register rresult, Register rtmp) {
 }
 
 void MacroAssembler::load_mirror(Register mirror, Register method, Register tmp) {
-  // get mirror
-  const int mirror_offset = in_bytes(Klass::java_mirror_offset());
-  ld_ptr(mirror, method, in_bytes(Method::const_offset()));
-  ld_ptr(mirror, mirror, in_bytes(ConstMethod::constants_offset()));
-  ld_ptr(mirror, mirror, ConstantPool::pool_holder_offset_in_bytes());
-  ld_ptr(mirror, mirror, mirror_offset);
+  ld_d(mirror, Address(method, Method::const_offset()));
+  ld_d(mirror, Address(mirror, ConstMethod::constants_offset()));
+  ld_d(mirror, Address(mirror, ConstantPool::pool_holder_offset_in_bytes()));
+  ld_d(mirror, Address(mirror, Klass::java_mirror_offset()));
   resolve_oop_handle(mirror, tmp);
 }
 
@@ -1351,23 +1330,23 @@ void MacroAssembler::_verify_oop(Register reg, const char* s, const char* file, 
   }
 
   addi_d(SP, SP, -6 * wordSize);
-  st_ptr(SCR1, Address(SP, 0 * wordSize));
-  st_ptr(SCR2, Address(SP, 1 * wordSize));
-  st_ptr(RA, Address(SP, 2 * wordSize));
-  st_ptr(A0, Address(SP, 3 * wordSize));
-  st_ptr(A1, Address(SP, 4 * wordSize));
+  st_d(SCR1, Address(SP, 0 * wordSize));
+  st_d(SCR2, Address(SP, 1 * wordSize));
+  st_d(RA, Address(SP, 2 * wordSize));
+  st_d(A0, Address(SP, 3 * wordSize));
+  st_d(A1, Address(SP, 4 * wordSize));
 
   move(A1, reg);
   patchable_li52(A0, (uintptr_t)(address)b); // Fixed size instructions
   li(SCR2, StubRoutines::verify_oop_subroutine_entry_address());
-  ld_ptr(SCR2, Address(SCR2));
+  ld_d(SCR2, Address(SCR2));
   jalr(SCR2);
 
-  ld_ptr(SCR1, Address(SP, 0 * wordSize));
-  ld_ptr(SCR2, Address(SP, 1 * wordSize));
-  ld_ptr(RA, Address(SP, 2 * wordSize));
-  ld_ptr(A0, Address(SP, 3 * wordSize));
-  ld_ptr(A1, Address(SP, 4 * wordSize));
+  ld_d(SCR1, Address(SP, 0 * wordSize));
+  ld_d(SCR2, Address(SP, 1 * wordSize));
+  ld_d(RA, Address(SP, 2 * wordSize));
+  ld_d(A0, Address(SP, 3 * wordSize));
+  ld_d(A1, Address(SP, 4 * wordSize));
   addi_d(SP, SP, 6 * wordSize);
 }
 
@@ -1383,32 +1362,32 @@ void MacroAssembler::_verify_oop_addr(Address addr, const char* s, const char* f
   }
 
   addi_d(SP, SP, -6 * wordSize);
-  st_ptr(SCR1, Address(SP, 0 * wordSize));
-  st_ptr(SCR2, Address(SP, 1 * wordSize));
-  st_ptr(RA, Address(SP, 2 * wordSize));
-  st_ptr(A0, Address(SP, 3 * wordSize));
-  st_ptr(A1, Address(SP, 4 * wordSize));
+  st_d(SCR1, Address(SP, 0 * wordSize));
+  st_d(SCR2, Address(SP, 1 * wordSize));
+  st_d(RA, Address(SP, 2 * wordSize));
+  st_d(A0, Address(SP, 3 * wordSize));
+  st_d(A1, Address(SP, 4 * wordSize));
 
   patchable_li52(A0, (uintptr_t)(address)b); // Fixed size instructions
   // addr may contain sp so we will have to adjust it based on the
   // pushes that we just did.
   if (addr.uses(SP)) {
     lea(A1, addr);
-    ld_ptr(A1, Address(A1, 6 * wordSize));
+    ld_d(A1, Address(A1, 6 * wordSize));
   } else {
-    ld_ptr(A1, addr);
+    ld_d(A1, addr);
   }
 
   // call indirectly to solve generation ordering problem
   li(SCR2, StubRoutines::verify_oop_subroutine_entry_address());
-  ld_ptr(SCR2, Address(SCR2));
+  ld_d(SCR2, Address(SCR2));
   jalr(SCR2);
 
-  ld_ptr(SCR1, Address(SP, 0 * wordSize));
-  ld_ptr(SCR2, Address(SP, 1 * wordSize));
-  ld_ptr(RA, Address(SP, 2 * wordSize));
-  ld_ptr(A0, Address(SP, 3 * wordSize));
-  ld_ptr(A1, Address(SP, 4 * wordSize));
+  ld_d(SCR1, Address(SP, 0 * wordSize));
+  ld_d(SCR2, Address(SP, 1 * wordSize));
+  ld_d(RA, Address(SP, 2 * wordSize));
+  ld_d(A0, Address(SP, 3 * wordSize));
+  ld_d(A1, Address(SP, 4 * wordSize));
   addi_d(SP, SP, 6 * wordSize);
 }
 
@@ -1431,7 +1410,7 @@ void MacroAssembler::verify_oop_subroutine() {
   if (UseZGC) {
     // Check if mask is good.
     // verifies that ZAddressBadMask & A1 == 0
-    ld_ptr(AT, Address(TREG, ZThreadLocalData::address_bad_mask_offset()));
+    ld_d(AT, Address(TREG, ZThreadLocalData::address_bad_mask_offset()));
     andr(AT, A1, AT);
     bnez(AT, error);
   }
@@ -1472,14 +1451,14 @@ void MacroAssembler::verify_tlab(Register t1, Register t2) {
 
     get_thread(t1);
 
-    ld_ptr(t2, t1, in_bytes(JavaThread::tlab_top_offset()));
-    ld_ptr(AT, t1, in_bytes(JavaThread::tlab_start_offset()));
+    ld_d(t2, Address(t1, JavaThread::tlab_top_offset()));
+    ld_d(AT, Address(t1, JavaThread::tlab_start_offset()));
     bgeu(t2, AT, next);
 
     stop("assert(top >= start)");
 
     bind(next);
-    ld_ptr(AT, t1, in_bytes(JavaThread::tlab_end_offset()));
+    ld_d(AT, Address(t1, JavaThread::tlab_end_offset()));
     bgeu(AT, t2, ok);
 
     stop("assert(top <= end)");
@@ -1812,7 +1791,7 @@ void MacroAssembler::load_method_holder(Register holder, Register method) {
 
 void MacroAssembler::load_method_holder_cld(Register rresult, Register rmethod) {
   load_method_holder(rresult, rmethod);
-  ld_ptr(rresult, Address(rresult, InstanceKlass::class_loader_data_offset()));
+  ld_d(rresult, Address(rresult, InstanceKlass::class_loader_data_offset()));
 }
 
 // for UseCompressedOops Option
@@ -2463,21 +2442,15 @@ Address MacroAssembler::argument_address(RegisterOrConstant arg_slot,
   int offset1 = Interpreter::expr_offset_in_bytes(extra_slot_offset+1);
   assert(offset1 - offset == stackElementSize, "correct arithmetic");
 #endif
-  Register             scale_reg    = NOREG;
+  Register             scale_reg    = noreg;
   Address::ScaleFactor scale_factor = Address::no_scale;
   if (arg_slot.is_constant()) {
     offset += arg_slot.as_constant() * stackElementSize;
   } else {
     scale_reg    = arg_slot.as_register();
-    scale_factor = Address::times_8;
+    scale_factor = Address::times(stackElementSize);
   }
-  // We don't push RA on stack in prepare_invoke.
-  //  offset += wordSize;           // return PC is on stack
-  if(scale_reg==NOREG) return Address(SP, offset);
-  else {
-  alsl_d(scale_reg, scale_reg, SP, scale_factor - 1);
-  return Address(scale_reg, offset);
-  }
+  return Address(SP, scale_reg, scale_factor, offset);
 }
 
 SkipIfEqual::~SkipIfEqual() {

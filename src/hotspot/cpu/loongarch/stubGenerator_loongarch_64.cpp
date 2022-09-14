@@ -121,7 +121,7 @@ class StubGenerator: public StubCodeGenerator {
   //    [ argument word n-1    ] <--- sp
   //      ...
   //    [ argument word 0      ]
-  //-24 [                      ]
+  //-24 [                      ] <--- sp_after_call
   //-23 [ F31                  ]
   //      ...
   //-16 [ F24                  ]
@@ -170,21 +170,25 @@ class StubGenerator: public StubCodeGenerator {
     F29_off            = -21,
     F30_off            = -22,
     F31_off            = -23,
-    total_off          = -24,
+    // padding for SP 16-byte alignment
+    sp_after_call_off  = -24,
   };
 
   address generate_call_stub(address& return_address) {
-    assert((int)frame::entry_frame_call_wrapper_offset == (int)call_wrapper_off, "adjust this code");
-    StubCodeMark mark(this, "StubRoutines", "call_stub");
-    address start = __ pc();
+    assert((int)frame::entry_frame_after_call_words == -(int)sp_after_call_off + 1 &&
+           (int)frame::entry_frame_call_wrapper_offset == (int)call_wrapper_off,
+           "adjust this code");
 
-    // same as in generate_catch_exception()!
+    StubCodeMark mark(this, "StubRoutines", "call_stub");
 
     // stub code
-    // save ra and fp
+
+    address start = __ pc();
+
+    // set up frame and move sp to end of save area
     __ enter();
-    // I think 14 is the max gap between argument and callee saved register
-    __ addi_d(SP, SP, total_off * wordSize);
+    __ addi_d(SP, FP, sp_after_call_off * wordSize);
+
     __ st_d(BCP, FP, BCP_off * wordSize);
     __ st_d(LVP, FP, LVP_off * wordSize);
     __ st_d(TSR, FP, TSR_off * wordSize);
@@ -271,26 +275,32 @@ class StubGenerator: public StubCodeGenerator {
     Label common_return;
     __ bind(common_return);
 
-    // store result depending on type
-    // (everything that is not T_LONG, T_FLOAT or T_DOUBLE is treated as T_INT)
-    __ ld_d(T0, FP, result_off * wordSize);   // result --> T0
+    // store result depending on type (everything that is not
+    // T_OBJECT, T_LONG, T_FLOAT or T_DOUBLE is treated as T_INT)
+    // n.b. this assumes Java returns an integral result in V0
+    // and a floating result in FV0
+    __ ld_d(T0, FP, result_off * wordSize);
+    __ ld_d(T2, FP, result_type_off * wordSize);
+
     Label is_long, is_float, is_double, exit;
-    __ ld_d(T2, FP, result_type_off * wordSize);  // result_type --> T2
-    __ addi_d(T3, T2, (-1) * T_LONG);
-    __ beq(T3, R0, is_long);
-    __ addi_d(T3, T2, (-1) * T_FLOAT);
-    __ beq(T3, R0, is_float);
-    __ addi_d(T3, T2, (-1) * T_DOUBLE);
-    __ beq(T3, R0, is_double);
+
+    __ addi_d(AT, T2, (-1) * T_OBJECT);
+    __ beqz(AT, is_long);
+    __ addi_d(AT, T2, (-1) * T_LONG);
+    __ beqz(AT, is_long);
+    __ addi_d(AT, T2, (-1) * T_FLOAT);
+    __ beqz(AT, is_float);
+    __ addi_d(AT, T2, (-1) * T_DOUBLE);
+    __ beqz(AT, is_double);
 
     // handle T_INT case
-    __ st_d(V0, T0, 0 * wordSize);
+    __ st_w(V0, T0, 0);
+
     __ bind(exit);
 
-    // restore
+    // restore callee-save registers
     __ ld_d(BCP, FP, BCP_off * wordSize);
     __ ld_d(LVP, FP, LVP_off * wordSize);
-    __ ld_d(S8, FP, S8_off * wordSize);
     __ ld_d(TSR, FP, TSR_off * wordSize);
 
     __ ld_d(S1, FP, S1_off * wordSize);
@@ -298,6 +308,7 @@ class StubGenerator: public StubCodeGenerator {
     __ ld_d(S4, FP, S4_off * wordSize);
     __ ld_d(S5, FP, S5_off * wordSize);
     __ ld_d(S6, FP, S6_off * wordSize);
+    __ ld_d(S8, FP, S8_off * wordSize);
 
     __ fld_d(F24, FP, F24_off * wordSize);
     __ fld_d(F25, FP, F25_off * wordSize);
@@ -308,25 +319,26 @@ class StubGenerator: public StubCodeGenerator {
     __ fld_d(F30, FP, F30_off * wordSize);
     __ fld_d(F31, FP, F31_off * wordSize);
 
+    // leave frame and return to caller
     __ leave();
-
-    // return
     __ jr(RA);
 
     // handle return types different from T_INT
     __ bind(is_long);
-    __ st_d(V0, T0, 0 * wordSize);
+    __ st_d(V0, T0, 0);
     __ b(exit);
 
     __ bind(is_float);
-    __ fst_s(FV0, T0, 0 * wordSize);
+    __ fst_s(FV0, T0, 0);
     __ b(exit);
 
     __ bind(is_double);
-    __ fst_d(FV0, T0, 0 * wordSize);
+    __ fst_d(FV0, T0, 0);
     __ b(exit);
+
     StubRoutines::la::set_call_stub_compiled_return(__ pc());
     __ b(common_return);
+
     return start;
   }
 

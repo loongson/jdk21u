@@ -123,6 +123,11 @@ class MacroAssembler: public Assembler {
   // They _shadow_ the declarations in AbstractAssembler, which are undefined.
   static void pd_patch_instruction(address branch, address target, const char* file = NULL, int line = 0);
 
+  // Return whether code is emitted to a scratch blob.
+  virtual bool in_scratch_emit_size() {
+    return false;
+  }
+
   address emit_trampoline_stub(int insts_call_instruction_offset, address target);
 
   // Support for inc/dec with optimal instruction selection depending on value
@@ -516,27 +521,6 @@ class MacroAssembler: public Assembler {
   void load_sized_value(Register dst, Address src, size_t size_in_bytes, bool is_signed, Register dst2 = noreg);
   void store_sized_value(Address dst, Register src, size_t size_in_bytes, Register src2 = noreg);
 
-  // ld_ptr will perform lw for 32 bit VMs and ld for 64 bit VMs
-  inline void ld_ptr(Register rt, Address a) {
-    ld_d(rt, a);
-  }
-
-  inline void ld_ptr(Register rt, Register base, int offset16) {
-    ld_d(rt, base, offset16);
-  }
-
-  // st_ptr will perform sw for 32 bit VMs and sd for 64 bit VMs
-  inline void st_ptr(Register rt, Address a) {
-    st_d(rt, a);
-  }
-
-  inline void st_ptr(Register rt, Register base, int offset16) {
-    st_d(rt, base, offset16);
-  }
-
-  void ld_ptr(Register rt, Register base, Register offset);
-  void st_ptr(Register rt, Register base, Register offset);
-
   // swap the two byte of the low 16-bit halfword
   void bswap_h(Register dst, Register src);
   void bswap_hu(Register dst, Register src);
@@ -695,6 +679,21 @@ class MacroAssembler: public Assembler {
   void movoop(Register dst, jobject obj, bool immediate = false);
 
 #undef VIRTUAL
+
+  void cast_primitive_type(BasicType type, Register reg) {
+    switch (type) {
+      case T_BOOLEAN: c2bool(reg);                 break;
+      case T_CHAR   : bstrpick_d(reg, reg, 15, 0); break;
+      case T_BYTE   : sign_extend_byte (reg);      break;
+      case T_SHORT  : sign_extend_short(reg);      break;
+      case T_INT    : add_w(reg, reg, R0);         break;
+      case T_LONG   : /* nothing to do */          break;
+      case T_VOID   : /* nothing to do */          break;
+      case T_FLOAT  : /* nothing to do */          break;
+      case T_DOUBLE : /* nothing to do */          break;
+      default: ShouldNotReachHere();
+    }
+  }
 
 private:
   void push(unsigned int bitset);

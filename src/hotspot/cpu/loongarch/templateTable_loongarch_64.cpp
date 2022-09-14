@@ -488,7 +488,7 @@ void TemplateTable::fast_aldc(bool wide) {
     // but it's harmless to retry.
     Label notNull;
     __ li(rarg, (long)Universe::the_null_sentinel_addr());
-    __ ld_ptr(tmp, Address(rarg));
+    __ ld_d(tmp, Address(rarg));
     __ resolve_oop_handle(tmp, T4);
     __ bne(tmp, result, notNull);
     __ xorr(result, result, result);  // NULL object reference
@@ -3216,15 +3216,12 @@ void TemplateTable::prepare_invoke(int byte_no,
      __ bind(L_no_push);
   }
 
-  // load receiver if needed (after appendix is pushed so parameter size is correct)
-  // Note: no return address pushed yet
+  // load receiver if needed (note: no return address pushed yet)
   if (load_receiver) {
-    __ li(AT, ConstantPoolCacheEntry::parameter_size_mask);
-    __ andr(recv, flags, AT);
-    // Since we won't push RA on stack, no_return_pc_pushed_yet should be 0.
-    const int no_return_pc_pushed_yet = 0;  // argument slot correction before we push return address
-    const int receiver_is_at_end      = -1;  // back off one slot to get receiver
-    Address recv_addr = __ argument_address(recv, no_return_pc_pushed_yet + receiver_is_at_end);
+    // parameter_size_mask = 1 << 8
+    __ andi(recv, flags, ConstantPoolCacheEntry::parameter_size_mask);
+
+    Address recv_addr = __ argument_address(recv, -1);
     __ ld_d(recv, recv_addr);
     __ verify_oop(recv);
   }
