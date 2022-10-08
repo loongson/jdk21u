@@ -38,22 +38,6 @@
 
 #define __ _masm->
 
-#define A0 RA0
-#define A1 RA1
-#define A2 RA2
-#define A3 RA3
-#define A4 RA4
-#define A5 RA5
-#define A6 RA6
-#define A7 RA7
-#define T0 RT0
-#define T1 RT1
-#define T2 RT2
-#define T3 RT3
-#define T4 RT4
-#define T5 RT5
-#define T8 RT8
-
 #ifdef PRODUCT
 #define BLOCK_COMMENT(str) // nothing
 #define STOP(error) stop(error)
@@ -282,7 +266,16 @@ address MethodHandles::generate_method_handle_interpreter_entry(MacroAssembler* 
 
 void MethodHandles::jump_to_native_invoker(MacroAssembler* _masm, Register nep_reg, Register temp_target) {
   BLOCK_COMMENT("jump_to_native_invoker {");
-  __ stop("Should not reach here");
+  assert_different_registers(nep_reg, temp_target);
+  assert(nep_reg != noreg, "required register");
+
+  // Load the invoker, as NEP -> .invoker
+  __ verify_oop(nep_reg);
+  __ access_load_at(T_ADDRESS, IN_HEAP, temp_target,
+                    Address(nep_reg, NONZERO(jdk_internal_foreign_abi_NativeEntryPoint::downcall_stub_address_offset_in_bytes())),
+                    noreg, noreg);
+
+  __ jr(temp_target);
   BLOCK_COMMENT("} jump_to_native_invoker");
 }
 
@@ -298,7 +291,7 @@ void MethodHandles::generate_method_handle_dispatch(MacroAssembler* _masm,
   Register temp2 = T4;
   Register temp3 = T5;
   if (for_compiler_entry) {
-    assert(receiver_reg == (iid == vmIntrinsics::_linkToStatic ? noreg : RECEIVER), "only valid assignment");
+    assert(receiver_reg == (iid == vmIntrinsics::_linkToStatic || iid == vmIntrinsics::_linkToNative ? noreg : RECEIVER), "only valid assignment");
   }
   else {
     assert_different_registers(temp1, temp2, temp3, saved_last_sp_register());  // don't trash lastSP
@@ -480,7 +473,7 @@ void trace_method_handle_stub(const char* adaptername,
 
   if (Verbose) {
     tty->print_cr("Registers:");
-    const int saved_regs_count = RegisterImpl::number_of_registers;
+    const int saved_regs_count = Register::number_of_registers;
     for (int i = 0; i < saved_regs_count; i++) {
       Register r = as_Register(i);
       // The registers are stored in reverse order on the stack (by pusha).

@@ -26,6 +26,7 @@
 #include "precompiled.hpp"
 #include "asm/assembler.hpp"
 #include "code/vmreg.hpp"
+#include "vmreg_loongarch.inline.hpp"
 
 
 
@@ -33,7 +34,7 @@ void VMRegImpl::set_regName() {
   Register reg = ::as_Register(0);
   int i;
   for (i = 0; i < ConcreteRegisterImpl::max_gpr ; ) {
-    for (int j = 0 ; j < RegisterImpl::max_slots_per_register ; j++) {
+    for (int j = 0 ; j < Register::max_slots_per_register ; j++) {
       regName[i++] = reg->name();
     }
     reg = reg->successor();
@@ -41,7 +42,7 @@ void VMRegImpl::set_regName() {
 
   FloatRegister freg = ::as_FloatRegister(0);
   for ( ; i < ConcreteRegisterImpl::max_fpr ; ) {
-    for (int j = 0 ; j < FloatRegisterImpl::max_slots_per_register ; j++) {
+    for (int j = 0 ; j < FloatRegister::max_slots_per_register ; j++) {
       regName[i++] = freg->name();
     }
     freg = freg->successor();
