@@ -76,7 +76,7 @@ class LinuxCDebugger implements CDebugger {
     List<LoadObject> objs = getLoadObjectList();
 
     for (int i = 0; i < objs.size(); i++) {
-      LoadObject ob = (LoadObject) objs.get(i);
+      LoadObject ob = objs.get(i);
       Address base = ob.getBase();
       long size = ob.getSize();
       if (pc.greaterThanOrEqual(base) && pc.lessThan(base.addOffsetTo(size))) {
@@ -131,7 +131,7 @@ class LinuxCDebugger implements CDebugger {
        return new LinuxRISCV64CFrame(dbg, fp, pc);
     } else {
        // Runtime exception thrown by LinuxThreadContextFactory if unknown cpu
-       ThreadContext context = (ThreadContext) thread.getContext();
+       ThreadContext context = thread.getContext();
        return context.getTopFrame(dbg);
     }
   }
