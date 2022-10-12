@@ -432,7 +432,7 @@ public class HotSpotAgent {
         }
         catch (NoSuchSymbolException e) {
             throw new DebuggerException("Doesn't appear to be a HotSpot VM (could not find symbol \"" +
-            e.getSymbol() + "\" in remote process)");
+            e.getSymbol() + "\" in remote process)", e);
         }
 
         if (startupMode != REMOTE_MODE) {
