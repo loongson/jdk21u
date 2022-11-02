@@ -406,51 +406,51 @@ register %{
 //S6 is used for get_thread(S6)
 //S5 is used for heapbase of compressed oop
 alloc_class chunk0(
-                     S7, S7_H,
-                     S0, S0_H,
-                     S1, S1_H,
-                     S2, S2_H,
-                     S4, S4_H,
-                     S5, S5_H,
-                     S6, S6_H,
-                     S3, S3_H,
+                     // volatiles
+                     T0, T0_H,
+                     T1, T1_H,
                      T2, T2_H,
                      T3, T3_H,
-                     T8, T8_H,
                      T4, T4_H,
-                     T1, T1_H, // inline_cache_reg
+                     T5, T5_H,
                      T6, T6_H,
+                     T8, T8_H,
+
+                     // args
                      A7, A7_H,
                      A6, A6_H,
                      A5, A5_H,
                      A4, A4_H,
-                     T5, T5_H,
                      A3, A3_H,
                      A2, A2_H,
                      A1, A1_H,
                      A0, A0_H,
-                     T0, T0_H,
+
+                     // non-volatiles
+                     S0, S0_H,
+                     S1, S1_H,
+                     S2, S2_H,
+                     S3, S3_H,
+                     S4, S4_H,
+                     S5, S5_H,
+                     S6, S6_H,
+                     S7, S7_H,
                      S8, S8_H
+
+                     // non-allocatable registers
                      RA, RA_H,
                      SP, SP_H, // stack_pointer
                      FP, FP_H, // frame_pointer
-
-                     // non-allocatable registers
-                     T7, T7_H,
+                     T7, T7_H, // rscratch
                      TP, TP_H,
                      RX, RX_H,
                      R0, R0_H,
                  );
 
 // F23 is scratch reg
-alloc_class chunk1(  F0, F0_H, F0_J, F0_K, F0_L, F0_M, F0_N, F0_O,
-                     F1, F1_H, F1_J, F1_K, F1_L, F1_M, F1_N, F1_O,
-                     F2, F2_H, F2_J, F2_K, F2_L, F2_M, F2_N, F2_O,
-                     F3, F3_H, F3_J, F3_K, F3_L, F3_M, F3_N, F3_O,
-                     F4, F4_H, F4_J, F4_K, F4_L, F4_M, F4_N, F4_O,
-                     F5, F5_H, F5_J, F5_K, F5_L, F5_M, F5_N, F5_O,
-                     F6, F6_H, F6_J, F6_K, F6_L, F6_M, F6_N, F6_O,
-                     F7, F7_H, F7_J, F7_K, F7_L, F7_M, F7_N, F7_O,
+alloc_class chunk1(
+
+                     // no save
                      F8, F8_H, F8_J, F8_K, F8_L, F8_M, F8_N, F8_O,
                      F9, F9_H, F9_J, F9_K, F9_L, F9_M, F9_N, F9_O,
                      F10, F10_H, F10_J, F10_K, F10_L, F10_M, F10_N, F10_O,
@@ -466,6 +466,18 @@ alloc_class chunk1(  F0, F0_H, F0_J, F0_K, F0_L, F0_M, F0_N, F0_O,
                      F20, F20_H, F20_J, F20_K, F20_L, F20_M, F20_N, F20_O,
                      F21, F21_H, F21_J, F21_K, F21_L, F21_M, F21_N, F21_O,
                      F22, F22_H, F22_J, F22_K, F22_L, F22_M, F22_N, F22_O,
+
+                     // arg registers
+                     F0, F0_H, F0_J, F0_K, F0_L, F0_M, F0_N, F0_O,
+                     F1, F1_H, F1_J, F1_K, F1_L, F1_M, F1_N, F1_O,
+                     F2, F2_H, F2_J, F2_K, F2_L, F2_M, F2_N, F2_O,
+                     F3, F3_H, F3_J, F3_K, F3_L, F3_M, F3_N, F3_O,
+                     F4, F4_H, F4_J, F4_K, F4_L, F4_M, F4_N, F4_O,
+                     F5, F5_H, F5_J, F5_K, F5_L, F5_M, F5_N, F5_O,
+                     F6, F6_H, F6_J, F6_K, F6_L, F6_M, F6_N, F6_O,
+                     F7, F7_H, F7_J, F7_K, F7_L, F7_M, F7_N, F7_O,
+
+                     // non-volatiles
                      F24, F24_H, F24_J, F24_K, F24_L, F24_M, F24_N, F24_O,
                      F25, F25_H, F25_J, F25_K, F25_L, F25_M, F25_N, F25_O,
                      F26, F26_H, F26_J, F26_K, F26_L, F26_M, F26_N, F26_O,
@@ -578,6 +590,10 @@ reg_class p_reg %{
 
 reg_class no_CR_reg %{
   return _NO_CR_REG_mask;
+%}
+
+reg_class p_has_s6_reg %{
+  return _PTR_HAS_S6_REG_mask;
 %}
 
 reg_class all_reg(
@@ -783,6 +799,7 @@ extern RegMask _ANY_REG32_mask;
 extern RegMask _ANY_REG_mask;
 extern RegMask _PTR_REG_mask;
 extern RegMask _NO_CR_REG_mask;
+extern RegMask _PTR_HAS_S6_REG_mask;
 
 class CallStubImpl {
 
@@ -861,11 +878,13 @@ RegMask _ANY_REG32_mask;
 RegMask _ANY_REG_mask;
 RegMask _PTR_REG_mask;
 RegMask _NO_CR_REG_mask;
+RegMask _PTR_HAS_S6_REG_mask;
 
 void reg_mask_init() {
   _ANY_REG32_mask = _ALL_REG32_mask;
   _ANY_REG_mask = _ALL_REG_mask;
   _PTR_REG_mask = _ALL_REG_mask;
+  _PTR_HAS_S6_REG_mask = _ALL_REG_mask;
 
   if (UseCompressedOops && (CompressedOops::ptrs_base() != NULL)) {
     _ANY_REG32_mask.Remove(OptoReg::as_OptoReg(r28->as_VMReg()));
@@ -888,6 +907,8 @@ void reg_mask_init() {
 
   _NO_CR_REG_mask = _PTR_REG_mask;
   _NO_CR_REG_mask.SUBTRACT(_T0_LONG_REG_mask);
+
+  _PTR_HAS_S6_REG_mask.OR(_S6_LONG_REG_mask);
 }
 
 void PhaseOutput::pd_perform_mach_node_analysis() {
@@ -2288,12 +2309,15 @@ encode %{
     cbuf.set_insts_mark();
     __ relocate(relocInfo::runtime_call_type);
     __ patchable_call((address)$meth$$method);
+    _masm.clear_inst_mark();
+    __ post_call_nop();
   %}
 
   enc_class Java_Static_Call (method meth) %{    // JAVA STATIC CALL
     // CALL to fixup routine.  Fixup routine uses ScopeDesc info to determine
     // who we intended to call.
     C2_MacroAssembler _masm(&cbuf);
+    cbuf.set_insts_mark();
     address addr = (address)$meth$$method;
     address call;
     __ block_comment("Java_Static_Call");
@@ -2327,6 +2351,8 @@ encode %{
         }
       }
     }
+    _masm.clear_inst_mark();
+    __ post_call_nop();
   %}
 
 
@@ -2341,6 +2367,8 @@ encode %{
       ciEnv::current()->record_failure("CodeCache is full");
       return;
     }
+    _masm.clear_inst_mark();
+    __ post_call_nop();
   %}
 
 
@@ -3443,6 +3471,7 @@ operand mRegP() %{
   constraint(ALLOC_IN_RC(p_reg));
   match(RegP);
   match(a0_RegP);
+  match(javaThread_RegP);
 
   format %{  %}
   interface(REG_INTER);
@@ -3450,6 +3479,15 @@ operand mRegP() %{
 
 operand no_CR_mRegP() %{
   constraint(ALLOC_IN_RC(no_CR_reg));
+  match(RegP);
+  match(mRegP);
+
+  format %{  %}
+  interface(REG_INTER);
+%}
+
+operand p_has_s6_mRegP() %{
+  constraint(ALLOC_IN_RC(p_has_s6_reg));
   match(RegP);
   match(mRegP);
 
@@ -3503,6 +3541,16 @@ operand s6_RegP()
   match(RegP);
   match(mRegP);
 
+  format %{ %}
+  interface(REG_INTER);
+%}
+
+// Java Thread Register
+operand javaThread_RegP(mRegP reg)
+%{
+  constraint(ALLOC_IN_RC(s6_long_reg)); // S6 denotes TREG (java_thread)
+  match(reg);
+  op_cost(0);
   format %{ %}
   interface(REG_INTER);
 %}
@@ -3894,7 +3942,7 @@ operand indirect(mRegP reg) %{
 %}
 
 // Indirect Memory Plus Short Offset Operand
-operand indOffset12(mRegP reg, immL12 off)
+operand indOffset12(p_has_s6_mRegP reg, immL12 off)
 %{
   constraint(ALLOC_IN_RC(p_reg));
   match(AddP reg off);
@@ -5057,7 +5105,7 @@ instruct loadConP_general(mRegP dst, immP src) %{
     if ($src->constant_reloc() == relocInfo::metadata_type){
       __ mov_metadata(dst, (Metadata*)value);
     } else if($src->constant_reloc() == relocInfo::oop_type){
-      __ movoop(dst, (jobject)value, /*immediate*/true);
+      __ movoop(dst, (jobject)value);
     } else if ($src->constant_reloc() == relocInfo::none) {
       __ li(dst, (long)value);
     }
@@ -5283,16 +5331,19 @@ instruct jmpCon_flags_long(cmpOpEqNe cop, FlagsReg cr, label labl) %{
 
   ins_encode %{
     Label*    L =  $labl$$label;
+    Label not_taken;
     switch($cop$$cmpcode) {
       case 0x01: //equal
-        __ bne_long($cr$$Register, R0, *L);
+        __ bne($cr$$Register, R0, not_taken);
         break;
       case 0x02: //not equal
-        __ beq_long($cr$$Register, R0, *L);
+        __ beq($cr$$Register, R0, not_taken);
         break;
       default:
         Unimplemented();
     }
+    __ jmp_far(*L);
+    __ bind(not_taken);
   %}
 
   ins_pipe( pipe_jump );
@@ -5557,36 +5608,39 @@ instruct branchConF_reg_reg_long(cmpOp cmp, regF src1, regF src2, label labl) %{
     FloatRegister reg_op1 = $src1$$FloatRegister;
     FloatRegister reg_op2 = $src2$$FloatRegister;
     Label*     L =  $labl$$label;
+    Label not_taken;
     int     flag = $cmp$$cmpcode;
 
     switch(flag) {
       case 0x01: //equal
         __ fcmp_ceq_s(FCC0, reg_op1, reg_op2);
-        __ bc1t_long(*L);
+        __ bceqz(FCC0, not_taken);
         break;
       case 0x02: //not_equal
         __ fcmp_ceq_s(FCC0, reg_op1, reg_op2);
-        __ bc1f_long(*L);
+        __ bcnez(FCC0, not_taken);
         break;
       case 0x03: //greater
         __ fcmp_cule_s(FCC0, reg_op1, reg_op2);
-        __ bc1f_long(*L);
+        __ bcnez(FCC0, not_taken);
         break;
       case 0x04: //greater_equal
         __ fcmp_cult_s(FCC0, reg_op1, reg_op2);
-        __ bc1f_long(*L);
+        __ bcnez(FCC0, not_taken);
         break;
       case 0x05: //less
         __ fcmp_cult_s(FCC0, reg_op1, reg_op2);
-        __ bc1t_long(*L);
+        __ bceqz(FCC0, not_taken);
         break;
       case 0x06: //less_equal
         __ fcmp_cule_s(FCC0, reg_op1, reg_op2);
-        __ bc1t_long(*L);
+        __ bceqz(FCC0, not_taken);
         break;
       default:
         Unimplemented();
     }
+    __ jmp_far(*L);
+    __ bind(not_taken);
   %}
 
   ins_pc_relative(1);
@@ -5602,37 +5656,40 @@ instruct branchConD_reg_reg_long(cmpOp cmp, regD src1, regD src2, label labl) %{
     FloatRegister reg_op1 = $src1$$FloatRegister;
     FloatRegister reg_op2 = $src2$$FloatRegister;
     Label*     L =  $labl$$label;
+    Label not_taken;
     int     flag = $cmp$$cmpcode;
 
     switch(flag) {
       case 0x01: //equal
         __ fcmp_ceq_d(FCC0, reg_op1, reg_op2);
-        __ bc1t_long(*L);
+        __ bceqz(FCC0, not_taken);
         break;
       case 0x02: //not_equal
         // c_ueq_d cannot distinguish NaN from equal. Double.isNaN(Double) is implemented by 'f != f', so the use of c_ueq_d causes bugs.
         __ fcmp_ceq_d(FCC0, reg_op1, reg_op2);
-        __ bc1f_long(*L);
+        __ bcnez(FCC0, not_taken);
         break;
       case 0x03: //greater
         __ fcmp_cule_d(FCC0, reg_op1, reg_op2);
-        __ bc1f_long(*L);
+        __ bcnez(FCC0, not_taken);
         break;
       case 0x04: //greater_equal
         __ fcmp_cult_d(FCC0, reg_op1, reg_op2);
-        __ bc1f_long(*L);
+        __ bcnez(FCC0, not_taken);
         break;
       case 0x05: //less
         __ fcmp_cult_d(FCC0, reg_op1, reg_op2);
-        __ bc1t_long(*L);
+        __ bceqz(FCC0, not_taken);
         break;
       case 0x06: //less_equal
         __ fcmp_cule_d(FCC0, reg_op1, reg_op2);
-        __ bc1t_long(*L);
+        __ bceqz(FCC0, not_taken);
         break;
       default:
         Unimplemented();
     }
+    __ jmp_far(*L);
+    __ bind(not_taken);
   %}
 
   ins_pc_relative(1);
@@ -10612,17 +10669,23 @@ instruct decodeKlass_not_null(mRegP dst, mRegN src) %{
   ins_pipe( ialu_regL_regL );
 %}
 
-//FIXME
-instruct tlsLoadP(mRegP dst) %{
+// ============================================================================
+// This name is KNOWN by the ADLC and cannot be changed.
+// The ADLC forces a 'TypeRawPtr::BOTTOM' output type
+// for this guy.
+instruct tlsLoadP(javaThread_RegP dst)
+%{
   match(Set dst (ThreadLocal));
 
   ins_cost(0);
-  format %{ " get_thread in $dst #@tlsLoadP" %}
-  ins_encode %{
-    __ move($dst$$Register, TREG);
-  %}
 
-  ins_pipe( ialu_loadI );
+  format %{ " -- \t// $dst=Thread::current(), empty encoding, #@tlsLoadP" %}
+
+  size(0);
+
+  ins_encode( /*empty*/ );
+
+  ins_pipe( empty );
 %}
 
 
@@ -11834,6 +11897,206 @@ instruct minD_reg_reg(regD dst, regD src1, regD src2) %{
   %}
 
   ins_pipe( fpu_regF_regF );
+%}
+
+// Float.isInfinite
+instruct isInfiniteF_reg_reg(mRegI dst, regF src)
+%{
+  match(Set dst (IsInfiniteF src));
+  format %{ "isInfinite    $dst, $src @isInfiniteF_reg_reg" %}
+  ins_encode %{
+    FloatRegister src = $src$$FloatRegister;
+    Register      dst = $dst$$Register;
+
+    __ fclass_s(fscratch, src);
+    __ movfr2gr_s(dst, fscratch);
+    __ andi(dst, dst, 0b0001000100);
+    __ slt(dst, R0, dst);
+  %}
+  size(16);
+  ins_pipe( pipe_slow );
+%}
+
+// Double.isInfinite
+instruct isInfiniteD_reg_reg(mRegI dst, regD src)
+%{
+  match(Set dst (IsInfiniteD src));
+  format %{ "isInfinite    $dst, $src @isInfiniteD_reg_reg" %}
+  ins_encode %{
+    FloatRegister src = $src$$FloatRegister;
+    Register      dst = $dst$$Register;
+
+    __ fclass_d(fscratch, src);
+    __ movfr2gr_d(dst, fscratch);
+    __ andi(dst, dst, 0b0001000100);
+    __ slt(dst, R0, dst);
+  %}
+  size(16);
+  ins_pipe( pipe_slow );
+%}
+
+instruct isInfiniteF_cmovI(mRegI dst, mRegI src1, mRegI src2, regF op, immI_0 zero, cmpOp cop)
+%{
+  match(Set dst (CMoveI (Binary cop (CmpI (IsInfiniteF op) zero)) (Binary src1 src2)));
+  format %{ "isInfinite_cmovI    $dst, $src1, $src2, $op, $cop @isInfiniteF_cmovI" %}
+  ins_encode %{
+    Register      src1 = $src1$$Register;
+    Register      src2 = $src2$$Register;
+    Register      dst  = $dst$$Register;
+    FloatRegister op   = $op$$FloatRegister;
+    int         flag = $cop$$cmpcode;
+
+    __ fclass_s(fscratch, op);
+    __ movfr2gr_s(AT, fscratch);
+    __ andi(AT, AT, 0b0001000100);
+    switch(flag) {
+      case 0x01: // EQ
+        __ maskeqz(dst, src1, AT);
+        __ masknez(AT, src2, AT);
+        break;
+      case 0x02: // NE
+        __ masknez(dst, src1, AT);
+        __ maskeqz(AT, src2, AT);
+        break;
+      default:
+        ShouldNotReachHere();
+    }
+    __ orr(dst, dst, AT);
+  %}
+  size(24);
+  ins_pipe( pipe_slow );
+%}
+
+instruct isInfiniteD_cmovI(mRegI dst, mRegI src1, mRegI src2, regD op, immI_0 zero, cmpOp cop)
+%{
+  match(Set dst (CMoveI (Binary cop (CmpI (IsInfiniteD op) zero)) (Binary src1 src2)));
+  format %{ "isInfinite_cmovI    $dst, $src1, $src2, $op, $cop @isInfiniteD_cmovI" %}
+  ins_encode %{
+    Register      src1 = $src1$$Register;
+    Register      src2 = $src2$$Register;
+    Register      dst  = $dst$$Register;
+    FloatRegister op   = $op$$FloatRegister;
+    int           flag = $cop$$cmpcode;
+
+    __ fclass_d(fscratch, op);
+    __ movfr2gr_d(AT, fscratch);
+    __ andi(AT, AT, 0b0001000100);
+    switch(flag) {
+      case 0x01: // EQ
+        __ maskeqz(dst, src1, AT);
+        __ masknez(AT, src2, AT);
+        break;
+      case 0x02: // NE
+        __ masknez(dst, src1, AT);
+        __ maskeqz(AT, src2, AT);
+        break;
+      default:
+        ShouldNotReachHere();
+    }
+    __ orr(dst, dst, AT);
+  %}
+  size(24);
+  ins_pipe( pipe_slow );
+%}
+
+// Float.isFinite
+instruct isFiniteF_reg_reg(mRegI dst, regF src)
+%{
+  match(Set dst (IsFiniteF src));
+  format %{ "isFinite    $dst, $src @isFiniteF_reg_reg" %}
+  ins_encode %{
+    FloatRegister src = $src$$FloatRegister;
+    Register      dst = $dst$$Register;
+
+    __ fclass_s(fscratch, src);
+    __ movfr2gr_s(dst, fscratch);
+    __ andi(dst, dst, 0b1110111000);
+    __ slt(dst, R0, dst);
+  %}
+  size(16);
+  ins_pipe( pipe_slow );
+%}
+
+// Double.isFinite
+instruct isFiniteD_reg_reg(mRegI dst, regD src)
+%{
+  match(Set dst (IsFiniteD src));
+  format %{ "isFinite    $dst, $src @isFiniteD_reg_reg" %}
+  ins_encode %{
+    FloatRegister src = $src$$FloatRegister;
+    Register      dst = $dst$$Register;
+
+    __ fclass_d(fscratch, src);
+    __ movfr2gr_d(dst, fscratch);
+    __ andi(dst, dst, 0b1110111000);
+    __ slt(dst, R0, dst);
+  %}
+  size(16);
+  ins_pipe( pipe_slow );
+%}
+
+instruct isFiniteF_cmovI(mRegI dst, mRegI src1, mRegI src2, regF op, immI_0 zero, cmpOp cop)
+%{
+  match(Set dst (CMoveI (Binary cop (CmpI (IsFiniteF op) zero)) (Binary src1 src2)));
+  format %{ "isFinite_cmovI    $dst, $src1, $src2, $op, $cop @isFiniteF_cmovI" %}
+  ins_encode %{
+    Register      src1 = $src1$$Register;
+    Register      src2 = $src2$$Register;
+    Register      dst  = $dst$$Register;
+    FloatRegister op   = $op$$FloatRegister;
+    int         flag = $cop$$cmpcode;
+
+    __ fclass_s(fscratch, op);
+    __ movfr2gr_s(AT, fscratch);
+    __ andi(dst, dst, 0b1110111000);
+    switch(flag) {
+      case 0x01: // EQ
+        __ maskeqz(dst, src1, AT);
+        __ masknez(AT, src2, AT);
+        break;
+      case 0x02: // NE
+        __ masknez(dst, src1, AT);
+        __ maskeqz(AT, src2, AT);
+        break;
+      default:
+        ShouldNotReachHere();
+    }
+    __ orr(dst, dst, AT);
+  %}
+  size(24);
+  ins_pipe( pipe_slow );
+%}
+
+instruct isFiniteD_cmovI(mRegI dst, mRegI src1, mRegI src2, regD op, immI_0 zero, cmpOp cop)
+%{
+  match(Set dst (CMoveI (Binary cop (CmpI (IsFiniteD op) zero)) (Binary src1 src2)));
+  format %{ "isFinite_cmovI    $dst, $src1, $src2, $op, $cop @isFiniteD_cmovI" %}
+  ins_encode %{
+    Register      src1 = $src1$$Register;
+    Register      src2 = $src2$$Register;
+    Register      dst  = $dst$$Register;
+    FloatRegister op   = $op$$FloatRegister;
+    int           flag = $cop$$cmpcode;
+
+    __ fclass_d(fscratch, op);
+    __ movfr2gr_d(AT, fscratch);
+    __ andi(dst, dst, 0b1110111000);
+    switch(flag) {
+      case 0x01: // EQ
+        __ maskeqz(dst, src1, AT);
+        __ masknez(AT, src2, AT);
+        break;
+      case 0x02: // NE
+        __ masknez(dst, src1, AT);
+        __ maskeqz(AT, src2, AT);
+        break;
+      default:
+        ShouldNotReachHere();
+    }
+    __ orr(dst, dst, AT);
+  %}
+  size(24);
+  ins_pipe( pipe_slow );
 %}
 
 instruct combine_i2l(mRegL dst, mRegI src1, immL_MaxUI mask, mRegI src2, immI_32 shift32)

@@ -297,10 +297,7 @@ void LIR_Assembler::jobject2reg(jobject o, Register reg) {
   if (o == NULL) {
     __ move(reg, R0);
   } else {
-    int oop_index = __ oop_recorder()->find_index(o);
-    RelocationHolder rspec = oop_Relocation::spec(oop_index);
-    __ relocate(rspec);
-    __ patchable_li52(reg, (long)o);
+    __ movoop(reg, o);
   }
 }
 
@@ -2312,6 +2309,7 @@ void LIR_Assembler::call(LIR_OpJavaCall* op, relocInfo::relocType rtype) {
     return;
   }
   add_call_info(code_offset(), op->info());
+  __ post_call_nop();
 }
 
 void LIR_Assembler::ic_call(LIR_OpJavaCall* op) {
@@ -2321,6 +2319,7 @@ void LIR_Assembler::ic_call(LIR_OpJavaCall* op) {
     return;
   }
   add_call_info(code_offset(), op->info());
+  __ post_call_nop();
 }
 
 void LIR_Assembler::emit_static_call_stub() {
@@ -3166,6 +3165,7 @@ void LIR_Assembler::rt_call(LIR_Opr result, address dest, const LIR_OprList* arg
   if (info != NULL) {
     add_call_info_here(info);
   }
+  __ post_call_nop();
 }
 
 void LIR_Assembler::volatile_move_op(LIR_Opr src, LIR_Opr dest, BasicType type,

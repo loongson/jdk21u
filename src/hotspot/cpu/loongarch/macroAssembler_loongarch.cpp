@@ -488,11 +488,8 @@ void MacroAssembler::jmp_far(Label& L) {
   }
 }
 
-// Move an oop into a register.  immediate is true if we want
-// immediate instructions and nmethod entry barriers are not enabled.
-// i.e. we are not going to patch this instruction while the code is being
-// executed by another thread.
-void MacroAssembler::movoop(Register dst, jobject obj, bool immediate) {
+// Move an oop into a register.
+void MacroAssembler::movoop(Register dst, jobject obj) {
   int oop_index;
   if (obj == NULL) {
     oop_index = oop_recorder()->allocate_oop_index(obj);
@@ -507,17 +504,13 @@ void MacroAssembler::movoop(Register dst, jobject obj, bool immediate) {
   }
   RelocationHolder rspec = oop_Relocation::spec(oop_index);
 
-  // nmethod entry barrier necessitate using the constant pool. They have to be
-  // ordered with respected to oop accesses.
-  // Using immediate literals would necessitate ISBs.
-  BarrierSet* bs = BarrierSet::barrier_set();
-  if ((bs->barrier_set_nmethod() != NULL && bs->barrier_set_assembler()->nmethod_patching_type() == NMethodPatchingType::conc_data_patch) || !immediate) {
+  if (BarrierSet::barrier_set()->barrier_set_assembler()->supports_instruction_patching()) {
+    relocate(rspec);
+    patchable_li52(dst, (long)obj);
+  } else {
     address dummy = address(uintptr_t(pc()) & -wordSize); // A nearby aligned address
     relocate(rspec);
     patchable_li52(dst, (long)dummy);
-  } else {
-    relocate(rspec);
-    patchable_li52(dst, (long)obj);
   }
 }
 
@@ -711,9 +704,9 @@ void MacroAssembler::call_VM(Register oop_result,
                              Register arg_1,
                              Register arg_2,
                              bool check_exceptions) {
-  if (arg_1!=A1) move(A1, arg_1);
-  if (arg_2!=A2) move(A2, arg_2);
+  if (arg_1 != A1) move(A1, arg_1);
   assert(arg_2 != A1, "smashed argument");
+  if (arg_2 != A2) move(A2, arg_2);
   call_VM_helper(oop_result, entry_point, 2, check_exceptions);
 }
 
@@ -723,9 +716,11 @@ void MacroAssembler::call_VM(Register oop_result,
                              Register arg_2,
                              Register arg_3,
                              bool check_exceptions) {
-  if (arg_1!=A1) move(A1, arg_1);
-  if (arg_2!=A2) move(A2, arg_2); assert(arg_2 != A1, "smashed argument");
-  if (arg_3!=A3) move(A3, arg_3); assert(arg_3 != A1 && arg_3 != A2, "smashed argument");
+  if (arg_1 != A1) move(A1, arg_1);
+  assert(arg_2 != A1, "smashed argument");
+  if (arg_2 != A2) move(A2, arg_2);
+  assert(arg_3 != A1 && arg_3 != A2, "smashed argument");
+  if (arg_3 != A3) move(A3, arg_3);
   call_VM_helper(oop_result, entry_point, 3, check_exceptions);
 }
 
@@ -753,7 +748,8 @@ void MacroAssembler::call_VM(Register oop_result,
                              Register arg_2,
                              bool check_exceptions) {
   if (arg_1 != A1) move(A1, arg_1);
-  if (arg_2 != A2) move(A2, arg_2); assert(arg_2 != A1, "smashed argument");
+  assert(arg_2 != A1, "smashed argument");
+  if (arg_2 != A2) move(A2, arg_2);
   call_VM(oop_result, last_java_sp, entry_point, 2, check_exceptions);
 }
 
@@ -765,8 +761,10 @@ void MacroAssembler::call_VM(Register oop_result,
                              Register arg_3,
                              bool check_exceptions) {
   if (arg_1 != A1) move(A1, arg_1);
-  if (arg_2 != A2) move(A2, arg_2); assert(arg_2 != A1, "smashed argument");
-  if (arg_3 != A3) move(A3, arg_3); assert(arg_3 != A1 && arg_3 != A2, "smashed argument");
+  assert(arg_2 != A1, "smashed argument");
+  if (arg_2 != A2) move(A2, arg_2);
+  assert(arg_3 != A1 && arg_3 != A2, "smashed argument");
+  if (arg_3 != A3) move(A3, arg_3);
   call_VM(oop_result, last_java_sp, entry_point, 3, check_exceptions);
 }
 
@@ -860,14 +858,17 @@ void MacroAssembler::call_VM_leaf(address entry_point, Register arg_0) {
 
 void MacroAssembler::call_VM_leaf(address entry_point, Register arg_0, Register arg_1) {
   if (arg_0 != A0) move(A0, arg_0);
-  if (arg_1 != A1) move(A1, arg_1); assert(arg_1 != A0, "smashed argument");
+  assert(arg_1 != A0, "smashed argument");
+  if (arg_1 != A1) move(A1, arg_1);
   call_VM_leaf(entry_point, 2);
 }
 
 void MacroAssembler::call_VM_leaf(address entry_point, Register arg_0, Register arg_1, Register arg_2) {
   if (arg_0 != A0) move(A0, arg_0);
-  if (arg_1 != A1) move(A1, arg_1); assert(arg_1 != A0, "smashed argument");
-  if (arg_2 != A2) move(A2, arg_2); assert(arg_2 != A0 && arg_2 != A1, "smashed argument");
+  assert(arg_1 != A0, "smashed argument");
+  if (arg_1 != A1) move(A1, arg_1);
+  assert(arg_2 != A0 && arg_2 != A1, "smashed argument");
+  if (arg_2 != A2) move(A2, arg_2);
   call_VM_leaf(entry_point, 3);
 }
 
@@ -885,7 +886,8 @@ void MacroAssembler::super_call_VM_leaf(address entry_point,
                                                    Register arg_1,
                                                    Register arg_2) {
   if (arg_1 != A0) move(A0, arg_1);
-  if (arg_2 != A1) move(A1, arg_2); assert(arg_2 != A0, "smashed argument");
+  assert(arg_2 != A0, "smashed argument");
+  if (arg_2 != A1) move(A1, arg_2);
   MacroAssembler::call_VM_leaf_base(entry_point, 2);
 }
 
@@ -894,8 +896,10 @@ void MacroAssembler::super_call_VM_leaf(address entry_point,
                                                    Register arg_2,
                                                    Register arg_3) {
   if (arg_1 != A0) move(A0, arg_1);
-  if (arg_2 != A1) move(A1, arg_2); assert(arg_2 != A0, "smashed argument");
-  if (arg_3 != A2) move(A2, arg_3); assert(arg_3 != A0 && arg_3 != A1, "smashed argument");
+  assert(arg_2 != A0, "smashed argument");
+  if (arg_2 != A1) move(A1, arg_2);
+  assert(arg_3 != A0 && arg_3 != A1, "smashed argument");
+  if (arg_3 != A2) move(A2, arg_3);
   MacroAssembler::call_VM_leaf_base(entry_point, 3);
 }
 
@@ -1541,8 +1545,36 @@ void MacroAssembler::cmpxchg32(Address addr, Register oldval, Register newval, R
     b(*fail);
 }
 
+void MacroAssembler::push_cont_fastpath(Register java_thread) {
+  if (!Continuations::enabled()) return;
+  Label done;
+  ld_d(AT, Address(java_thread, JavaThread::cont_fastpath_offset()));
+  bgeu(AT, SP, done);
+  st_d(SP, Address(java_thread, JavaThread::cont_fastpath_offset()));
+  bind(done);
+}
+
+void MacroAssembler::pop_cont_fastpath(Register java_thread) {
+  if (!Continuations::enabled()) return;
+  Label done;
+  ld_d(AT, Address(java_thread, JavaThread::cont_fastpath_offset()));
+  bltu(SP, AT, done);
+  st_d(R0, Address(java_thread, JavaThread::cont_fastpath_offset()));
+  bind(done);
+}
+
 void MacroAssembler::align(int modulus) {
   while (offset() % modulus != 0) nop();
+}
+
+void MacroAssembler::post_call_nop() {
+  if (!Continuations::enabled()) return;
+  InstructionMark im(this);
+  relocate(post_call_nop_Relocation::spec());
+  // pick 2 instructions to save oopmap(8 bits) and offset(24 bits)
+  nop();
+  ori(R0, R0, 0);
+  ori(R0, R0, 0);
 }
 
 static RegSet caller_saved_regset = RegSet::range(A0, A7) + RegSet::range(T0, T8) + RegSet::of(FP, RA) - RegSet::of(SCR1, SCR2);
