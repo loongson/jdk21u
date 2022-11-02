@@ -5653,10 +5653,7 @@ instruct jmpDir_short(label labl) %{
 
   ins_encode %{
     Label &L = *($labl$$label);
-    if(&L)
-       __ b(L);
-    else
-       __ b(int(0));
+    __ b(L);
   %}
 
     ins_pipe( pipe_jump );
@@ -5714,16 +5711,10 @@ instruct jmpCon_flags_short(cmpOpEqNe cop, FlagsReg cr, label labl) %{
     Label    &L =  *($labl$$label);
     switch($cop$$cmpcode) {
       case 0x01: //equal
-        if (&L)
-          __ bnez($cr$$Register, L);
-        else
-          __ bnez($cr$$Register, (int)0);
+        __ bnez($cr$$Register, L);
         break;
       case 0x02: //not equal
-        if (&L)
-          __ beqz($cr$$Register, L);
-        else
-          __ beqz($cr$$Register, (int)0);
+        __ beqz($cr$$Register, L);
         break;
       default:
         Unimplemented();
@@ -6011,45 +6002,27 @@ instruct branchConF_reg_reg_short(cmpOp cmp, regF src1, regF src2, label labl) %
     switch(flag) {
       case 0x01: //equal
         __ fcmp_ceq_s(FCC0, reg_op1, reg_op2);
-        if (&L)
-          __ bcnez(FCC0, L);
-        else
-          __ bcnez(FCC0, (int)0);
+        __ bcnez(FCC0, L);
         break;
       case 0x02: //not_equal
         __ fcmp_ceq_s(FCC0, reg_op1, reg_op2);
-        if (&L)
-          __ bceqz(FCC0, L);
-        else
-          __ bceqz(FCC0, (int)0);
+        __ bceqz(FCC0, L);
         break;
       case 0x03: //greater
         __ fcmp_cule_s(FCC0, reg_op1, reg_op2);
-        if(&L)
-          __ bceqz(FCC0, L);
-        else
-          __ bceqz(FCC0, (int)0);
+        __ bceqz(FCC0, L);
         break;
       case 0x04: //greater_equal
         __ fcmp_cult_s(FCC0, reg_op1, reg_op2);
-        if(&L)
-          __ bceqz(FCC0, L);
-        else
-          __ bceqz(FCC0, (int)0);
+        __ bceqz(FCC0, L);
         break;
       case 0x05: //less
         __ fcmp_cult_s(FCC0, reg_op1, reg_op2);
-        if(&L)
-          __ bcnez(FCC0, L);
-        else
-          __ bcnez(FCC0, (int)0);
+        __ bcnez(FCC0, L);
         break;
       case 0x06: //less_equal
         __ fcmp_cule_s(FCC0, reg_op1, reg_op2);
-        if(&L)
-          __ bcnez(FCC0, L);
-        else
-          __ bcnez(FCC0, (int)0);
+        __ bcnez(FCC0, L);
         break;
       default:
         Unimplemented();
@@ -6075,46 +6048,28 @@ instruct branchConD_reg_reg_short(cmpOp cmp, regD src1, regD src2, label labl) %
     switch(flag) {
       case 0x01: //equal
         __ fcmp_ceq_d(FCC0, reg_op1, reg_op2);
-        if (&L)
-          __ bcnez(FCC0, L);
-        else
-          __ bcnez(FCC0, (int)0);
+        __ bcnez(FCC0, L);
         break;
       case 0x02: //not_equal
         // c_ueq_d cannot distinguish NaN from equal. Double.isNaN(Double) is implemented by 'f != f', so the use of c_ueq_d causes bugs.
         __ fcmp_ceq_d(FCC0, reg_op1, reg_op2);
-        if (&L)
-          __ bceqz(FCC0, L);
-        else
-          __ bceqz(FCC0, (int)0);
+        __ bceqz(FCC0, L);
         break;
       case 0x03: //greater
         __ fcmp_cule_d(FCC0, reg_op1, reg_op2);
-        if(&L)
-          __ bceqz(FCC0, L);
-        else
-          __ bceqz(FCC0, (int)0);
+        __ bceqz(FCC0, L);
         break;
       case 0x04: //greater_equal
         __ fcmp_cult_d(FCC0, reg_op1, reg_op2);
-        if(&L)
-          __ bceqz(FCC0, L);
-        else
-          __ bceqz(FCC0, (int)0);
+        __ bceqz(FCC0, L);
         break;
       case 0x05: //less
         __ fcmp_cult_d(FCC0, reg_op1, reg_op2);
-        if(&L)
-          __ bcnez(FCC0, L);
-        else
-          __ bcnez(FCC0, (int)0);
+        __ bcnez(FCC0, L);
         break;
       case 0x06: //less_equal
         __ fcmp_cule_d(FCC0, reg_op1, reg_op2);
-        if(&L)
-          __ bcnez(FCC0, L);
-        else
-          __ bcnez(FCC0, (int)0);
+        __ bcnez(FCC0, L);
         break;
       default:
         Unimplemented();
@@ -16573,23 +16528,35 @@ instruct cmpV32(vecY dst, vecY src1, vecY src2, immI cond)
 
 // ---------------------------- LOAD_IOTA_INDICES -----------------------------
 
-instruct loadcon16B(vecX dst, immI_0 src) %{
-  predicate(Matcher::vector_length(n) == 16 && Matcher::vector_element_basic_type(n) == T_BYTE);
+instruct loadconV16(vecX dst, immI_0 src) %{
+  predicate(Matcher::vector_length_in_bytes(n) == 16);
   match(Set dst (VectorLoadConst src));
-  format %{ "vld_con    $dst, CONSTANT_MEMORY\t# @loadcon16B" %}
+  format %{ "vld_con    $dst, CONSTANT_MEMORY\t# @loadconV16" %}
   ins_encode %{
-    __ li(AT, (long)StubRoutines::la::vector_iota_indices());
+    // The iota indices are ordered by type B/S/I/L/F/D, and the offset between two types is 32.
+    BasicType bt = Matcher::vector_element_basic_type(this);
+    int offset = exact_log2(type2aelembytes(bt)) << 5;
+    if (is_floating_point_type(bt)) {
+      offset += 64;
+    }
+    __ li(AT, (long)(StubRoutines::la::vector_iota_indices() + offset));
     __ vld($dst$$FloatRegister, AT, (int)0);
   %}
   ins_pipe( pipe_slow );
 %}
 
-instruct loadcon32B(vecY dst, immI_0 src) %{
-  predicate(Matcher::vector_length(n) == 32 && Matcher::vector_element_basic_type(n) == T_BYTE);
+instruct loadconV32(vecY dst, immI_0 src) %{
+  predicate(Matcher::vector_length_in_bytes(n) == 32);
   match(Set dst (VectorLoadConst src));
-  format %{ "xvld_con    $dst, CONSTANT_MEMORY\t# @loadcon32B" %}
+  format %{ "xvld_con    $dst, CONSTANT_MEMORY\t# @loadconV32" %}
   ins_encode %{
-    __ li(AT, (long)StubRoutines::la::vector_iota_indices());
+    // The iota indices are ordered by type B/S/I/L/F/D, and the offset between two types is 32.
+    BasicType bt = Matcher::vector_element_basic_type(this);
+    int offset = exact_log2(type2aelembytes(bt)) << 5;
+    if (is_floating_point_type(bt)) {
+      offset += 64;
+    }
+    __ li(AT, (long)(StubRoutines::la::vector_iota_indices() + offset));
     __ xvld($dst$$FloatRegister, AT, (int)0);
   %}
   ins_pipe( pipe_slow );
