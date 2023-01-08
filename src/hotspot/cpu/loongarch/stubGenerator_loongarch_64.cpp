@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2015, 2022, Loongson Technology. All rights reserved.
+ * Copyright (c) 2015, 2023, Loongson Technology. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,11 +45,16 @@
 #include "runtime/stubCodeGenerator.hpp"
 #include "runtime/stubRoutines.hpp"
 #include "utilities/copy.hpp"
+
 #ifdef COMPILER2
 #include "opto/runtime.hpp"
 #endif
 #if INCLUDE_JFR
 #include "jfr/support/jfrIntrinsics.hpp"
+#endif
+
+#if INCLUDE_ZGC
+#include "gc/z/zThreadLocalData.hpp"
 #endif
 
 // Declaration and definition of StubGenerator (no .hpp file).
@@ -376,18 +381,18 @@ class StubGenerator: public StubCodeGenerator {
   // converted into a Java-level exception.
   //
   // Contract with Java-level exception handlers:
-  // V0: exception
-  // V1: throwing pc
+  //   A0: exception
+  //   A1: throwing pc
   //
-  // NOTE: At entry of this stub, exception-pc must be on stack !!
+  // NOTE: At entry of this stub, exception-pc must be in RA !!
 
   address generate_forward_exception() {
     StubCodeMark mark(this, "StubRoutines", "forward exception");
     address start = __ pc();
 
-    // Upon entry, the sp points to the return address returning into
+    // Upon entry, RA points to the return address returning into
     // Java (interpreted or compiled) code; i.e., the return address
-    // throwing pc.
+    // becomes the throwing pc.
     //
     // Arguments pushed before the runtime call are still on the stack
     // but the exception handler will reset the stack pointer ->
@@ -398,48 +403,113 @@ class StubGenerator: public StubCodeGenerator {
     // make sure this code is only executed if there is a pending exception
     {
       Label L;
-      __ ld_d(AT, TREG, in_bytes(Thread::pending_exception_offset()));
+      __ ld_d(AT, Address(TREG, Thread::pending_exception_offset()));
       __ bnez(AT, L);
       __ stop("StubRoutines::forward exception: no pending exception (1)");
       __ bind(L);
     }
 #endif
 
-    // compute exception handler into T4
-    __ ld_d(A1, SP, 0);
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::exception_handler_for_return_address), TREG, A1);
-    __ move(T4, V0);
-    __ pop(V1);
+    const Register exception_handler = T4;
 
-    __ ld_d(V0, TREG, in_bytes(Thread::pending_exception_offset()));
+    __ move(TSR, RA); // keep return address in callee-saved register
+    __ call_VM_leaf(
+         CAST_FROM_FN_PTR(address, SharedRuntime::exception_handler_for_return_address),
+         TREG, RA);
+    __ move(RA, TSR); // restore
+
+    __ move(exception_handler, A0);
+    __ move(A1, RA); // save throwing pc
+
+    __ ld_d(A0, TREG, in_bytes(Thread::pending_exception_offset()));
     __ st_d(R0, TREG, in_bytes(Thread::pending_exception_offset()));
 
 #ifdef ASSERT
     // make sure exception is set
     {
       Label L;
-      __ bne(V0, R0, L);
+      __ bnez(A0, L);
       __ stop("StubRoutines::forward exception: no pending exception (2)");
       __ bind(L);
     }
 #endif
 
     // continue at exception handler (return address removed)
-    // V0: exception
-    // T4: exception handler
-    // V1: throwing pc
-    __ verify_oop(V0);
-    __ jr(T4);
+    //   A0: exception
+    //   A1: throwing pc
+    __ verify_oop(A0);
+    __ jr(exception_handler);
+
     return start;
   }
 
   // Non-destructive plausibility checks for oops
   //
+  // Arguments:
+  //    c_rarg0: error message
+  //    c_rarg1: oop to verify
+  //
+  // Stack after saving c_rarg3:
+  //    [tos + 0]: saved c_rarg3
+  //    [tos + 1]: saved c_rarg2
+  //    [tos + 2]: saved c_rarg1
+  //    [tos + 3]: saved c_rarg0
+  //    [tos + 4]: saved AT
+  //    [tos + 5]: saved RA
   address generate_verify_oop() {
+
     StubCodeMark mark(this, "StubRoutines", "verify_oop");
     address start = __ pc();
-    __ verify_oop_subroutine();
-    address end = __ pc();
+
+    Label exit, error;
+
+    const Register msg = c_rarg0;
+    const Register oop = c_rarg1;
+
+    __ push(RegSet::of(c_rarg2, c_rarg3));
+
+    __ li(c_rarg2, (address) StubRoutines::verify_oop_count_addr());
+    __ ld_d(c_rarg3, Address(c_rarg2));
+    __ addi_d(c_rarg3, c_rarg3, 1);
+    __ st_d(c_rarg3, Address(c_rarg2));
+
+    // make sure object is 'reasonable'
+    __ beqz(oop, exit); // if obj is NULL it is OK
+
+#if INCLUDE_ZGC
+    if (UseZGC) {
+      // Check if mask is good.
+      // verifies that ZAddressBadMask & object == 0
+      __ ld_d(c_rarg3, Address(TREG, ZThreadLocalData::address_bad_mask_offset()));
+      __ andr(c_rarg2, oop, c_rarg3);
+      __ bnez(c_rarg2, error);
+    }
+#endif
+
+    // Check if the oop is in the right area of memory
+    __ li(c_rarg3, (intptr_t) Universe::verify_oop_mask());
+    __ andr(c_rarg2, oop, c_rarg3);
+    __ li(c_rarg3, (intptr_t) Universe::verify_oop_bits());
+
+    // Compare c_rarg2 and c_rarg3.
+    __ bne(c_rarg2, c_rarg3, error);
+
+    // make sure klass is 'reasonable', which is not zero.
+    __ load_klass(c_rarg2, oop); // get klass
+    __ beqz(c_rarg2, error);     // if klass is NULL it is broken
+
+    // return if everything seems ok
+    __ bind(exit);
+    __ pop(RegSet::of(c_rarg2, c_rarg3));
+    __ jr(RA);
+
+    // handle errors
+    __ bind(error);
+    __ pop(RegSet::of(c_rarg2, c_rarg3));
+    // error message already in c_rarg0, pass it to debug
+    __ call(CAST_FROM_FN_PTR(address, MacroAssembler::debug), relocInfo::runtime_call_type);
+    __ brk(5);
+
     return start;
   }
 
@@ -4781,34 +4851,26 @@ class StubGenerator: public StubCodeGenerator {
   // otherwise assume that stack unwinding will be initiated, so
   // caller saved registers were assumed volatile in the compiler.
   address generate_throw_exception(const char* name,
-                                   address runtime_entry,
-                                   bool restore_saved_exception_pc) {
+                                   address runtime_entry) {
     // Information about frame layout at time of blocking runtime call.
     // Note that we only have to preserve callee-saved registers since
     // the compilers are responsible for supplying a continuation point
     // if they expect all registers to be preserved.
+    assert(frame::arg_reg_save_area_bytes == 0, "not expecting frame reg save area");
+
     enum layout {
-      thread_off,    // last_java_sp
-      S7_off,        // callee saved register      sp + 1
-      S6_off,        // callee saved register      sp + 2
-      S5_off,        // callee saved register      sp + 3
-      S4_off,        // callee saved register      sp + 4
-      S3_off,        // callee saved register      sp + 5
-      S2_off,        // callee saved register      sp + 6
-      S1_off,        // callee saved register      sp + 7
-      S0_off,        // callee saved register      sp + 8
-      FP_off,
-      ret_address,
-      framesize
+      fp_off = 0,
+      fp_off2,
+      return_off,
+      return_off2,
+      framesize // inclusive of return address
     };
 
-    int insts_size = 2048;
-    int locs_size  = 32;
+    const int insts_size = 512;
+    const int locs_size  = 64;
 
-    //  CodeBuffer* code     = new CodeBuffer(insts_size, locs_size, 0, 0, 0, false,
-    //  NULL, NULL, NULL, false, NULL, name, false);
-    CodeBuffer code (name , insts_size, locs_size);
-    OopMapSet* oop_maps  = new OopMapSet();
+    CodeBuffer code(name, insts_size, locs_size);
+    OopMapSet* oop_maps = new OopMapSet();
     MacroAssembler* masm = new MacroAssembler(&code);
 
     address start = __ pc();
@@ -4817,77 +4879,53 @@ class StubGenerator: public StubCodeGenerator {
     // which has the ability to fetch the return PC out of
     // thread-local storage and also sets up last_Java_sp slightly
     // differently than the real call_VM
-    if (restore_saved_exception_pc) {
-      __ ld_d(RA, TREG, in_bytes(JavaThread::saved_exception_pc_offset()));
-    }
-    __ enter(); // required for proper stackwalking of RuntimeStub frame
 
-    __ addi_d(SP, SP, (-1) * (framesize-2) * wordSize); // prolog
-    __ st_d(S0, SP, S0_off * wordSize);
-    __ st_d(S1, SP, S1_off * wordSize);
-    __ st_d(S2, SP, S2_off * wordSize);
-    __ st_d(S3, SP, S3_off * wordSize);
-    __ st_d(S4, SP, S4_off * wordSize);
-    __ st_d(S5, SP, S5_off * wordSize);
-    __ st_d(S6, SP, S6_off * wordSize);
-    __ st_d(S7, SP, S7_off * wordSize);
+    __ enter(); // Save FP and RA before call
+
+    // RA and FP are already in place
+    __ addi_d(SP, FP, 0 - ((unsigned)framesize << LogBytesPerInt)); // prolog
 
     int frame_complete = __ pc() - start;
-    // push java thread (becomes first argument of C function)
-    __ st_d(TREG, SP, thread_off * wordSize);
-    if (TREG != A0)
-      __ move(A0, TREG);
 
     // Set up last_Java_sp and last_Java_fp
     Label before_call;
     address the_pc = __ pc();
     __ bind(before_call);
-    __ set_last_Java_frame(TREG, SP, FP, before_call);
-    // Align stack
+    __ set_last_Java_frame(SP, FP, before_call);
+
+    // TODO: the stack is unaligned before calling this stub
     assert(StackAlignmentInBytes == 16, "must be");
     __ bstrins_d(SP, R0, 3, 0);
 
-    // Call runtime
-    // TODO: confirm reloc
+    __ move(c_rarg0, TREG);
     __ call(runtime_entry, relocInfo::runtime_call_type);
+
     // Generate oop map
-    OopMap* map =  new OopMap(framesize, 0);
-    oop_maps->add_gc_map(the_pc - start,  map);
+    OopMap* map = new OopMap(framesize, 0);
+    oop_maps->add_gc_map(the_pc - start, map);
 
-    // restore the thread (cannot use the pushed argument since arguments
-    // may be overwritten by C code generated by an optimizing compiler);
-    // however can use the register value directly if it is callee saved.
+    __ reset_last_Java_frame(true);
 
-    __ ld_d(SP, TREG, in_bytes(JavaThread::last_Java_sp_offset()));
-    __ reset_last_Java_frame(TREG, true);
+    __ leave();
 
-    // Restore callee save registers.  This must be done after resetting the Java frame
-    __ ld_d(S0, SP, S0_off * wordSize);
-    __ ld_d(S1, SP, S1_off * wordSize);
-    __ ld_d(S2, SP, S2_off * wordSize);
-    __ ld_d(S3, SP, S3_off * wordSize);
-    __ ld_d(S4, SP, S4_off * wordSize);
-    __ ld_d(S5, SP, S5_off * wordSize);
-    __ ld_d(S6, SP, S6_off * wordSize);
-    __ ld_d(S7, SP, S7_off * wordSize);
-
-    // discard arguments
-    __ addi_d(SP, FP, -2 * wordSize); // epilog
-    __ pop(FP);
     // check for pending exceptions
 #ifdef ASSERT
     Label L;
-    __ ld_d(AT, TREG, in_bytes(Thread::pending_exception_offset()));
+    __ ld_d(AT, Address(TREG, Thread::pending_exception_offset()));
     __ bnez(AT, L);
     __ should_not_reach_here();
     __ bind(L);
 #endif //ASSERT
     __ jmp(StubRoutines::forward_exception_entry(), relocInfo::runtime_call_type);
-    RuntimeStub* stub = RuntimeStub::new_runtime_stub(name,
-                                                      &code,
-                                                      frame_complete,
-                                                      framesize,
-                                                      oop_maps, false);
+
+    // codeBlob framesize is in words (not VMRegImpl::slot_size)
+    RuntimeStub* stub =
+      RuntimeStub::new_runtime_stub(name,
+                                    &code,
+                                    frame_complete,
+                                    (framesize >> (LogBytesPerWord - LogBytesPerInt)),
+                                    oop_maps, false);
+
     return stub->entry_point();
   }
 
@@ -5448,12 +5486,13 @@ class StubGenerator: public StubCodeGenerator {
 
     StubRoutines::_throw_StackOverflowError_entry =
       generate_throw_exception("StackOverflowError throw_exception",
-                               CAST_FROM_FN_PTR(address, SharedRuntime::throw_StackOverflowError),
-                               false);
+                               CAST_FROM_FN_PTR(address,
+                                 SharedRuntime::throw_StackOverflowError));
+
     StubRoutines::_throw_delayed_StackOverflowError_entry =
       generate_throw_exception("delayed StackOverflowError throw_exception",
-                               CAST_FROM_FN_PTR(address, SharedRuntime::throw_delayed_StackOverflowError),
-                               false);
+                               CAST_FROM_FN_PTR(address,
+                                 SharedRuntime::throw_delayed_StackOverflowError));
 
     if (UseCRC32Intrinsics) {
       // set table address before stub generation which use it
@@ -5482,14 +5521,20 @@ class StubGenerator: public StubCodeGenerator {
     // These entry points require SharedInfo::stack0 to be set up in
     // non-core builds and need to be relocatable, so they each
     // fabricate a RuntimeStub internally.
-    StubRoutines::_throw_AbstractMethodError_entry = generate_throw_exception("AbstractMethodError throw_exception",
-                                                                               CAST_FROM_FN_PTR(address, SharedRuntime::throw_AbstractMethodError),  false);
+    StubRoutines::_throw_AbstractMethodError_entry =
+      generate_throw_exception("AbstractMethodError throw_exception",
+                               CAST_FROM_FN_PTR(address,
+                                 SharedRuntime::throw_AbstractMethodError));
 
-    StubRoutines::_throw_IncompatibleClassChangeError_entry = generate_throw_exception("IncompatibleClassChangeError throw_exception",
-                                                                               CAST_FROM_FN_PTR(address, SharedRuntime:: throw_IncompatibleClassChangeError), false);
+    StubRoutines::_throw_IncompatibleClassChangeError_entry =
+      generate_throw_exception("IncompatibleClassChangeError throw_exception",
+                               CAST_FROM_FN_PTR(address,
+                                 SharedRuntime::throw_IncompatibleClassChangeError));
 
-    StubRoutines::_throw_NullPointerException_at_call_entry = generate_throw_exception("NullPointerException at call throw_exception",
-                                                                                        CAST_FROM_FN_PTR(address, SharedRuntime::throw_NullPointerException_at_call), false);
+    StubRoutines::_throw_NullPointerException_at_call_entry =
+      generate_throw_exception("NullPointerException at call throw_exception",
+                               CAST_FROM_FN_PTR(address,
+                                 SharedRuntime::throw_NullPointerException_at_call));
 
     StubRoutines::la::_vector_iota_indices = generate_iota_indices("iota_indices");
 

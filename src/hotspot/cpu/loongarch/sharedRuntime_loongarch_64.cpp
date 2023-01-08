@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2015, 2022, Loongson Technology. All rights reserved.
+ * Copyright (c) 2015, 2023, Loongson Technology. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -1035,19 +1035,19 @@ static void restore_args(MacroAssembler *masm, int arg_count, int first_arg, VMR
 }
 
 static void verify_oop_args(MacroAssembler* masm,
-                            methodHandle method,
+                            const methodHandle& method,
                             const BasicType* sig_bt,
                             const VMRegPair* regs) {
-  Register temp_reg = T4;  // not part of any compiled calling seq
   if (VerifyOops) {
-    for (int i = 0; i < method->size_of_parameters(); i++) {
-      if (sig_bt[i] == T_OBJECT ||
-          sig_bt[i] == T_ARRAY) {
+    // verify too many args may overflow the code buffer
+    int arg_size = MIN2(64, method->size_of_parameters());
+
+    for (int i = 0; i < arg_size; i++) {
+      if (is_reference_type(sig_bt[i])) {
         VMReg r = regs[i].first();
         assert(r->is_valid(), "bad oop arg");
         if (r->is_stack()) {
-          __ ld_d(temp_reg, Address(SP, r->reg2stack() * VMRegImpl::stack_slot_size + wordSize));
-          __ verify_oop(temp_reg);
+          __ verify_oop_addr(Address(SP, r->reg2stack() * VMRegImpl::stack_slot_size));
         } else {
           __ verify_oop(r->as_Register());
         }
@@ -1308,7 +1308,7 @@ static void gen_continuation_yield(MacroAssembler* masm,
 }
 
 static void gen_special_dispatch(MacroAssembler* masm,
-                                 methodHandle method,
+                                 const methodHandle& method,
                                  const BasicType* sig_bt,
                                  const VMRegPair* regs) {
   verify_oop_args(masm, method, sig_bt, regs);
@@ -2060,17 +2060,22 @@ nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
   __ ld_d(AT, TREG, in_bytes(JavaThread::active_handles_offset()));
   __ st_w(R0, AT, JNIHandleBlock::top_offset_in_bytes());
 
+  __ leave();
+
   // Any exception pending?
   __ ld_d(AT, TREG, in_bytes(Thread::pending_exception_offset()));
   __ bne(AT, R0, exception_pending);
 
-  // no exception, we're almost done
-
-  // Return
-  __ leave();
-
+  // We're done
   __ jr(RA);
+
   // Unexpected paths are out of line and go here
+
+  // forward the exception
+  __ bind(exception_pending);
+
+  __ jmp(StubRoutines::forward_exception_entry(), relocInfo::runtime_call_type);
+
   // Slow path locking & unlocking
   if (method->is_synchronized()) {
 
@@ -2166,18 +2171,6 @@ nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
       relocInfo::runtime_call_type);
   restore_native_result(masm, ret_type, stack_slots);
   __ b(reguard_done);
-
-  // BEGIN EXCEPTION PROCESSING
-  // Forward  the exception
-  __ bind(exception_pending);
-
-  // pop our frame
-  //forward_exception_entry need return address on stack
-  __ addi_d(SP, FP, - 2 * wordSize);
-  __ pop(FP);
-
-  // and forward the exception
-  __ jmp(StubRoutines::forward_exception_entry(), relocInfo::runtime_call_type);
 
   __ flush();
 
@@ -2814,10 +2807,8 @@ SafepointBlob* SharedRuntime::generate_handler_blob(address call_ptr, int poll_t
   // Exception pending
 
   reg_save.restore_live_registers(masm);
-  //forward_exception_entry need return address on the stack
-  __ push(RA);
-  // TODO: confirm reloc
-  __ jmp((address)StubRoutines::forward_exception_entry(), relocInfo::runtime_call_type);
+
+  __ jmp(StubRoutines::forward_exception_entry(), relocInfo::runtime_call_type);
 
   // No exception case
   __ bind(noException);
@@ -2928,8 +2919,6 @@ RuntimeStub* SharedRuntime::generate_resolve_blob(address destination, const cha
   reg_save.restore_live_registers(masm);
 
   // exception pending => remove activation and forward to exception handler
-  //forward_exception_entry need return address on the stack
-  __ push(RA);
 
   __ st_d(R0, Address(TREG, JavaThread::vm_result_offset()));
   __ ld_d(V0, Address(TREG, Thread::pending_exception_offset()));
