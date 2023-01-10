@@ -23,8 +23,8 @@
  */
 
 /*
- * This file has been modified by Loongson Technology in 2022, These
- * modifications are Copyright (c) 2022, Loongson Technology, and are made
+ * This file has been modified by Loongson Technology in 2023, These
+ * modifications are Copyright (c) 2022, 2023, Loongson Technology, and are made
  * available on the same license terms set forth above.
  */
 
@@ -67,23 +67,13 @@ static jlong java_tid(JavaThread* thread) {
 }
 #endif
 
-const ContinuationEntry* Continuation::last_continuation(const JavaThread* thread, oop cont_scope) {
-  // guarantee (thread->has_last_Java_frame(), "");
-  for (ContinuationEntry* entry = thread->last_continuation(); entry != nullptr; entry = entry->parent()) {
-    if (cont_scope == jdk_internal_vm_Continuation::scope(entry->cont_oop())) {
-      return entry;
-    }
-  }
-  return nullptr;
-}
-
 ContinuationEntry* Continuation::get_continuation_entry_for_continuation(JavaThread* thread, oop continuation) {
   if (thread == nullptr || continuation == nullptr) {
     return nullptr;
   }
 
   for (ContinuationEntry* entry = thread->last_continuation(); entry != nullptr; entry = entry->parent()) {
-    if (continuation == entry->cont_oop()) {
+    if (continuation == entry->cont_oop(thread)) {
       return entry;
     }
   }
@@ -103,10 +93,6 @@ static bool is_on_stack(JavaThread* thread, const ContinuationEntry* entry) {
 
 bool Continuation::is_continuation_mounted(JavaThread* thread, oop continuation) {
   return is_on_stack(thread, get_continuation_entry_for_continuation(thread, continuation));
-}
-
-bool Continuation::is_continuation_scope_mounted(JavaThread* thread, oop cont_scope) {
-  return is_on_stack(thread, last_continuation(thread, cont_scope));
 }
 
 // When walking the virtual stack, this method returns true
@@ -199,7 +185,7 @@ frame Continuation::top_frame(const frame& callee, RegisterMap* map) {
   assert(map != nullptr, "");
   ContinuationEntry* ce = get_continuation_entry_for_sp(map->thread(), callee.sp());
   assert(ce != nullptr, "");
-  oop continuation = ce->cont_oop();
+  oop continuation = ce->cont_oop(map->thread());
   ContinuationWrapper cont(continuation);
   return continuation_top_frame(cont, map);
 }
@@ -245,7 +231,7 @@ frame Continuation::continuation_parent_frame(RegisterMap* map) {
 
   map->set_stack_chunk(nullptr);
 
-#if (defined(X86) || defined(AARCH64) || defined(RISCV64) || defined(LOONGARCH64)) && !defined(ZERO)
+#if (defined(X86) || defined(AARCH64) || defined(RISCV64) || defined(PPC64) || defined(LOONGARCH64)) && !defined(ZERO)
   frame sender(cont.entrySP(), cont.entryFP(), cont.entryPC());
 #else
   frame sender = frame();
@@ -272,7 +258,7 @@ bool Continuation::is_scope_bottom(oop cont_scope, const frame& f, const Registe
     if (ce == nullptr) {
       return false;
     }
-    continuation = ce->cont_oop();
+    continuation = ce->cont_oop(map->thread());
   }
   if (continuation == nullptr) {
     return false;
