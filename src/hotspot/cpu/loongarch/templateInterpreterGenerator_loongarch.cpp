@@ -538,8 +538,7 @@ address TemplateInterpreterGenerator::generate_exception_handler_common(
 address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, int step, size_t index_size) {
 
   address entry = __ pc();
-  // S8 be used in C2
-  __ li(S8, (long)Interpreter::dispatch_table(itos));
+
   // Restore stack bottom in case i2c adjusted stack
   __ ld_d(SP, Address(FP, frame::interpreter_frame_last_sp_offset * wordSize));
   // and NULL it as marker that sp is now tos until next java call
@@ -571,6 +570,7 @@ address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, 
   __ check_and_handle_popframe(TREG);
   __ check_and_handle_earlyret(TREG);
 
+  __ get_dispatch();
   __ dispatch_next(state, step);
 
   return entry;
@@ -581,12 +581,12 @@ address TemplateInterpreterGenerator::generate_deopt_entry_for(TosState state,
                                                                int step,
                                                                address continuation) {
   address entry = __ pc();
-  // S8 be used in C2
-  __ li(S8, (long)Interpreter::dispatch_table(itos));
-  // NULL last_sp until next java call
-  __ st_d(R0, FP, frame::interpreter_frame_last_sp_offset * wordSize);
   __ restore_bcp();
   __ restore_locals();
+  __ get_dispatch();
+
+  // NULL last_sp until next java call
+  __ st_d(R0, FP, frame::interpreter_frame_last_sp_offset * wordSize);
 
 #if INCLUDE_JVMCI
   // Check if we need to take lock at entry of synchronized method.  This can
@@ -1542,8 +1542,6 @@ address TemplateInterpreterGenerator::generate_normal_entry(bool synchronized) {
   // Rsender: sender 's sp
   address entry_point = __ pc();
 
-  // S8 be used in C2
-  __ li(S8, (long)Interpreter::dispatch_table(itos));
   const Address invocation_counter(Rmethod,
       in_bytes(MethodCounters::invocation_counter_offset() + InvocationCounter::counter_offset()));
 
@@ -1589,16 +1587,10 @@ address TemplateInterpreterGenerator::generate_normal_entry(bool synchronized) {
     __ bind(exit);
   }
 
-  //
-  // [ local var m-1      ] <--- sp
-  //   ...
-  // [ local var 0        ]
-  // [ argument word n-1  ] <--- T0?
-  //   ...
-  // [ argument word 0    ] <--- LVP
+  // And the base dispatch table
+  __ get_dispatch();
 
   // initialize fixed part of activation frame
-
   generate_fixed_frame(false);
 
 
@@ -1748,11 +1740,9 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
   // V1: return address/pc that threw exception
   __ restore_bcp();                              // BCP points to call/send
   __ restore_locals();
-
-  //add for compressedoops
   __ reinit_heapbase();
-  // S8 be used in C2
-  __ li(S8, (long)Interpreter::dispatch_table(itos));
+  __ get_dispatch();
+
   // Entry point for exceptions thrown within interpreter code
   Interpreter::_throw_exception_entry = __ pc();
   // expression stack is undefined here
@@ -1815,7 +1805,7 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
     __ get_method(A1);
     __ ld_d(A1, A1, in_bytes(Method::const_offset()));
     __ ld_hu(A1, A1, in_bytes(ConstMethod::size_of_parameters_offset()));
-    __ shl(A1, Interpreter::logStackElementSize);
+    __ slli_d(A1, A1, Interpreter::logStackElementSize);
     __ restore_locals();
     __ sub_d(A2, LVP, A1);
     __ addi_d(A2, A2, wordSize);
@@ -1874,8 +1864,8 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
   // Finish with popframe handling
   __ restore_bcp();
   __ restore_locals();
-  // S8 be used in C2
-  __ li(S8, (long)Interpreter::dispatch_table(itos));
+  __ get_method(Rmethod);
+  __ get_dispatch();
 
   // The method data pointer was incremented already during
   // call profiling. We have to restore the mdp for the current bcp.
@@ -1898,9 +1888,8 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
     // The member name argument must be restored if _invokestatic is re-executed after a PopFrame call.
     // Detect such a case in the InterpreterRuntime function and return the member name argument, or NULL.
 
-    __ get_method(T4);
     __ ld_d(T8, LVP, 0);
-    __ call_VM(T8, CAST_FROM_FN_PTR(address, InterpreterRuntime::member_name_arg_or_null), T8, T4, BCP);
+    __ call_VM(T8, CAST_FROM_FN_PTR(address, InterpreterRuntime::member_name_arg_or_null), T8, Rmethod, BCP);
 
     __ beq(T8, R0, L_done);
 

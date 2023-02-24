@@ -85,6 +85,8 @@ class InterpreterMacroAssembler: public MacroAssembler {
     ld_d(LVP, FP, frame::interpreter_frame_locals_offset * wordSize);
   }
 
+  void get_dispatch();
+
   // Helpers for runtime call arguments/results
   void get_method(Register reg) {
     ld_d(reg, FP, frame::interpreter_frame_method_offset * wordSize);
@@ -205,7 +207,6 @@ class InterpreterMacroAssembler: public MacroAssembler {
   void verify_method_data_pointer();
 
   void set_mdp_data_at(Register mdp_in, int constant, Register value);
-  void increment_mdp_data_at(Address data, bool decrement = false);
   void increment_mdp_data_at(Register mdp_in, int constant,
                              bool decrement = false);
   void increment_mdp_data_at(Register mdp_in, Register reg, int constant,
