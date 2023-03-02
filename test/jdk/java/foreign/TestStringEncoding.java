@@ -23,14 +23,14 @@
  */
 
 /*
- * This file has been modified by Loongson Technology in 2022, These
- * modifications are Copyright (c) 2022, Loongson Technology, and are made
+ * This file has been modified by Loongson Technology in 2023, These
+ * modifications are Copyright (c) 2022, 2023, Loongson Technology, and are made
  * available on the same license terms set forth above.
  */
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.MemorySession;
-import java.lang.foreign.SegmentAllocator;
+
 import org.testng.annotations.*;
 import static org.testng.Assert.*;
 
@@ -45,9 +45,8 @@ public class TestStringEncoding {
 
     @Test(dataProvider = "strings")
     public void testStrings(String testString, int expectedByteLength) {
-        try (MemorySession session = MemorySession.openConfined()) {
-            SegmentAllocator allocator = SegmentAllocator.newNativeArena(expectedByteLength, session);
-            MemorySegment text = allocator.allocateUtf8String(testString);
+        try (Arena arena = Arena.openConfined()) {
+            MemorySegment text = arena.allocateUtf8String(testString);
 
             assertEquals(text.byteSize(), expectedByteLength);
 

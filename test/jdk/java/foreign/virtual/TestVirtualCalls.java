@@ -37,10 +37,10 @@
  *   TestVirtualCalls
  */
 
-import java.lang.foreign.Addressable;
 import java.lang.foreign.Linker;
 import java.lang.foreign.FunctionDescriptor;
 
+import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 
 import org.testng.annotations.*;
@@ -52,9 +52,9 @@ public class TestVirtualCalls extends NativeTestHelper {
     static final Linker abi = Linker.nativeLinker();
 
     static final MethodHandle func;
-    static final Addressable funcA;
-    static final Addressable funcB;
-    static final Addressable funcC;
+    static final MemorySegment funcA;
+    static final MemorySegment funcB;
+    static final MemorySegment funcC;
 
     static {
         func = abi.downcallHandle(
@@ -75,7 +75,7 @@ public class TestVirtualCalls extends NativeTestHelper {
 
     @Test(expectedExceptions = NullPointerException.class)
     public void testNullTarget() throws Throwable {
-        int x = (int) func.invokeExact((Addressable) null);
+        int x = (int) func.invokeExact((MemorySegment)null);
     }
 
 }

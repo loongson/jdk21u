@@ -31,10 +31,13 @@
  */
 package jdk.internal.foreign;
 
-import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.ValueLayout;
 
-public class PlatformLayouts {
+public final class PlatformLayouts {
+
+    private PlatformLayouts() {
+        //just the one
+    }
 
     /**
      * This class defines layout constants modelling standard primitive types supported by the x64 SystemV ABI.
@@ -87,7 +90,7 @@ public class PlatformLayouts {
         /**
          * The {@code T*} native type.
          */
-        public static final ValueLayout.OfAddress C_POINTER = ValueLayout.ADDRESS.withBitAlignment(64);
+        public static final ValueLayout.OfAddress C_POINTER = ValueLayout.ADDRESS.withBitAlignment(64).asUnbounded();
 
         /**
          * The {@code va_list} native type, as it is passed to a function.
@@ -146,7 +149,7 @@ public class PlatformLayouts {
         /**
          * The {@code T*} native type.
          */
-        public static final ValueLayout.OfAddress C_POINTER = ValueLayout.ADDRESS.withBitAlignment(64);
+        public static final ValueLayout.OfAddress C_POINTER = ValueLayout.ADDRESS.withBitAlignment(64).asUnbounded();
 
         /**
          * The {@code va_list} native type, as it is passed to a function.
@@ -206,7 +209,7 @@ public class PlatformLayouts {
         /**
          * The {@code T*} native type.
          */
-        public static final ValueLayout.OfAddress C_POINTER = ValueLayout.ADDRESS.withBitAlignment(64);
+        public static final ValueLayout.OfAddress C_POINTER = ValueLayout.ADDRESS.withBitAlignment(64).asUnbounded();
 
         /**
          * The {@code va_list} native type, as it is passed to a function.
