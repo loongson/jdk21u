@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, Red Hat, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -19,27 +19,28 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
+ */
+
+/*
+ * @test
+ * @bug 8297556
+ * @summary Parse::check_interpreter_type fails with assert "must constrain OSR typestate"
+ *
+ * @run main/othervm -Xbatch -XX:-TieredCompilation -XX:CompileOnly=TestExactArrayOfBasicType::test TestExactArrayOfBasicType
  *
  */
 
-#include "precompiled.hpp"
-#include "memory/allocation.hpp"
-#include "metaprogramming/removeReference.hpp"
-#include "metaprogramming/isSame.hpp"
-#include "utilities/debug.hpp"
 
-class RemoveReferenceTest {
-  class A: AllStatic {};
+public class TestExactArrayOfBasicType {
+    public static void test() {
+        int[][][][][] array = new int[1][2][3][4][5];
 
-  typedef const volatile A cvA;
-  typedef const volatile A& cvAref;
-  typedef const volatile A* const volatile cvAptrcv;
+        for (int i = 0; i < 50_000; ++i) {
+            array[0] = new int[0][1][2][3];
+        }
+    }
 
-  typedef RemoveReference<cvAref>::type rr_cvAref;
-  static const bool rr_cvAref_is_cvAref = IsSame<rr_cvAref, cvA>::value;
-  STATIC_ASSERT(rr_cvAref_is_cvAref);
-
-  typedef RemoveReference<cvAptrcv>::type rr_cvAptrcv;
-  static const bool rr_cvAptrcv_is_cvAptrcv = IsSame<rr_cvAptrcv, cvAptrcv>::value;
-  STATIC_ASSERT(rr_cvAptrcv_is_cvAptrcv);
-};
+    public static void main(String args[]) {
+        test();
+    }
+}
