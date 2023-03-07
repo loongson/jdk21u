@@ -31,7 +31,7 @@
  * @test
  * @enablePreview
  * @library ../ /test/lib
- * @requires ((os.arch == "amd64" | os.arch == "x86_64") & sun.arch.data.model == "64") | os.arch == "aarch64" | os.arch == "loongarch64"
+ * @requires ((os.arch == "amd64" | os.arch == "x86_64") & sun.arch.data.model == "64") | os.arch == "aarch64" | os.arch == "riscv64" | os.arch == "loongarch64"
  * @run testng/othervm --enable-native-access=ALL-UNNAMED TestCaptureCallState
  */
 
