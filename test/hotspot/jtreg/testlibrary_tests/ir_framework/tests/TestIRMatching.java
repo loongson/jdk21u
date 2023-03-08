@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -239,7 +239,7 @@ public class TestIRMatching {
 
         try {
             runWithArgumentsFail(CompilationOutputOfFails.class);
-            Utils.shouldHaveThrownException(baos.toString());
+            Asserts.fail("Should have thrown exception");
         } catch (IRViolationException e) {
             try {
                 StringBuilder failures = new StringBuilder();
@@ -371,7 +371,7 @@ public class TestIRMatching {
                 framework.addFlags(args);
             }
             runFramework(framework);
-            Utils.shouldHaveThrownException(baos.toString());
+            Asserts.fail("Should have thrown exception");
         } catch (IRViolationException e) {
             checkConstraints(e, constraints);
         } catch (Exception e) {
