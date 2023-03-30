@@ -289,7 +289,11 @@ public:
   static bool needs_ulsync()        { return 1; }
 
   static bool supports_fast_class_init_checks() { return true; }
+  static bool supports_float16() { return UseLSX; }
   constexpr static bool supports_stack_watermark_barrier() { return true; }
+
+  // Check intrinsic support
+  static bool is_intrinsic_supported(vmIntrinsicID id);
 
   static void initialize_cpu_information(void);
 };
