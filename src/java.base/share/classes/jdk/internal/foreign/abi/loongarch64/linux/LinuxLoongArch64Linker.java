@@ -29,13 +29,10 @@ package jdk.internal.foreign.abi.loongarch64.linux;
 import jdk.internal.foreign.abi.AbstractLinker;
 import jdk.internal.foreign.abi.LinkerOptions;
 
-import java.lang.foreign.SegmentScope;
 import java.lang.foreign.FunctionDescriptor;
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.VaList;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodType;
-import java.util.function.Consumer;
+import java.nio.ByteOrder;
 
 public final class LinuxLoongArch64Linker extends AbstractLinker {
 
@@ -57,21 +54,12 @@ public final class LinuxLoongArch64Linker extends AbstractLinker {
     }
 
     @Override
-    protected UpcallStubFactory arrangeUpcall(MethodType targetType, FunctionDescriptor function) {
-        return LinuxLoongArch64CallArranger.arrangeUpcall(targetType, function);
+    protected UpcallStubFactory arrangeUpcall(MethodType targetType, FunctionDescriptor function, LinkerOptions options) {
+        return LinuxLoongArch64CallArranger.arrangeUpcall(targetType, function, options);
     }
 
-    public static VaList newVaList(Consumer<VaList.Builder> actions, SegmentScope scope) {
-        LinuxLoongArch64VaList.Builder builder = new LinuxLoongArch64VaList.Builder(scope);
-        actions.accept(builder);
-        return builder.build();
-    }
-
-    public static VaList newVaListOfAddress(long address, SegmentScope scope) {
-        return LinuxLoongArch64VaList.ofAddress(address, scope);
-    }
-
-    public static VaList emptyVaList() {
-        return LinuxLoongArch64VaList.empty();
+    @Override
+    protected ByteOrder linkerByteOrder() {
+        return ByteOrder.LITTLE_ENDIAN;
     }
 }
