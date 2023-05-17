@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,16 +22,10 @@
  */
 
 /*
- * This file has been modified by Loongson Technology in 2023. These
- * modifications are Copyright (c) 2023, Loongson Technology, and are made
- * available on the same license terms set forth above.
- */
-
-/*
  * @test
  * @enablePreview
  * @library ../ /test/lib
- * @requires ((os.arch == "amd64" | os.arch == "x86_64") & sun.arch.data.model == "64") | os.arch == "aarch64" | os.arch == "riscv64" | os.arch == "loongarch64"
+ * @requires jdk.foreign.linker != "UNSUPPORTED"
  * @run testng/othervm --enable-native-access=ALL-UNNAMED TestCaptureCallState
  */
 
@@ -72,13 +66,14 @@ public class TestCaptureCallState extends NativeTestHelper {
 
     @Test(dataProvider = "cases")
     public void testSavedThreadLocal(SaveValuesCase testCase) throws Throwable {
-        Linker.Option.CaptureCallState stl = Linker.Option.captureCallState(testCase.threadLocalName());
+        Linker.Option stl = Linker.Option.captureCallState(testCase.threadLocalName());
         MethodHandle handle = downcallHandle(testCase.nativeTarget(), testCase.nativeDesc(), stl);
 
-        VarHandle errnoHandle = stl.layout().varHandle(groupElement(testCase.threadLocalName()));
+        StructLayout capturedStateLayout = Linker.Option.captureStateLayout();
+        VarHandle errnoHandle = capturedStateLayout.varHandle(groupElement(testCase.threadLocalName()));
 
-        try (Arena arena = Arena.openConfined()) {
-            MemorySegment saveSeg = arena.allocate(stl.layout());
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment saveSeg = arena.allocate(capturedStateLayout);
             int testValue = 42;
             boolean needsAllocator = testCase.nativeDesc().returnLayout().map(StructLayout.class::isInstance).orElse(false);
             Object result = needsAllocator
@@ -134,4 +129,3 @@ public class TestCaptureCallState extends NativeTestHelper {
     }
 
 }
-

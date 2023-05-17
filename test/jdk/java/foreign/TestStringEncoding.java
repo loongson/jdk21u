@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, 2023, Oracle and/or its affiliates. All rights reserved.
  *  DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  *  This code is free software; you can redistribute it and/or modify it
@@ -22,12 +22,6 @@
  *
  */
 
-/*
- * This file has been modified by Loongson Technology in 2023, These
- * modifications are Copyright (c) 2022, 2023, Loongson Technology, and are made
- * available on the same license terms set forth above.
- */
-
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 
@@ -37,7 +31,7 @@ import static org.testng.Assert.*;
 /*
  * @test
  * @enablePreview
- * @requires ((os.arch == "amd64" | os.arch == "x86_64") & sun.arch.data.model == "64") | os.arch == "aarch64" | os.arch == "riscv64" | os.arch == "loongarch64"
+ * @requires jdk.foreign.linker != "UNSUPPORTED"
  * @run testng TestStringEncoding
  */
 
@@ -45,7 +39,7 @@ public class TestStringEncoding {
 
     @Test(dataProvider = "strings")
     public void testStrings(String testString, int expectedByteLength) {
-        try (Arena arena = Arena.openConfined()) {
+        try (Arena arena = Arena.ofConfined()) {
             MemorySegment text = arena.allocateUtf8String(testString);
 
             assertEquals(text.byteSize(), expectedByteLength);

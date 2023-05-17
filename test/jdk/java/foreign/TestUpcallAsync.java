@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,15 +22,9 @@
  */
 
 /*
- * This file has been modified by Loongson Technology in 2023, These
- * modifications are Copyright (c) 2022, 2023, Loongson Technology, and are made
- * available on the same license terms set forth above.
- */
-
-/*
  * @test
  * @enablePreview
- * @requires ((os.arch == "amd64" | os.arch == "x86_64") & sun.arch.data.model == "64") | os.arch == "aarch64" | os.arch == "riscv64" | os.arch == "loongarch64"
+ * @requires jdk.foreign.linker != "UNSUPPORTED"
  * @requires !vm.musl
  * @modules java.base/jdk.internal.foreign
  * @build NativeTestHelper CallGeneratorHelper TestUpcallBase
@@ -65,7 +59,7 @@ public class TestUpcallAsync extends TestUpcallBase {
         List<Consumer<Object>> returnChecks = new ArrayList<>();
         List<Consumer<Object>> argChecks = new ArrayList<>();
         MemorySegment addr = findNativeOrThrow(fName);
-        try (Arena arena = Arena.openShared()) {
+        try (Arena arena = Arena.ofShared()) {
             FunctionDescriptor descriptor = function(ret, paramTypes, fields);
             MethodHandle mh = downcallHandle(LINKER, addr, arena, descriptor);
             AtomicReference<Object[]> capturedArgs = new AtomicReference<>();
@@ -76,7 +70,7 @@ public class TestUpcallAsync extends TestUpcallBase {
             FunctionDescriptor callbackDesc = descriptor.returnLayout()
                     .map(FunctionDescriptor::of)
                     .orElse(FunctionDescriptor.ofVoid());
-            MemorySegment callback = LINKER.upcallStub(mh, callbackDesc, arena.scope());
+            MemorySegment callback = LINKER.upcallStub(mh, callbackDesc, arena);
 
             MethodHandle invoker = asyncInvoker(ret, ret == Ret.VOID ? null : paramTypes.get(0), fields);
 
