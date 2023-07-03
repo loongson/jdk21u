@@ -152,7 +152,7 @@ public class LinuxLoongArch64CallArranger {
         // Aggregates or scalars passed on the stack are aligned to the greater of
         // the type alignment and XLEN bits, but never more than the stack alignment.
         void alignStack(long alignment) {
-            alignment = Utils.alignUp(Math.min(Math.max(alignment, STACK_SLOT_SIZE), 16), STACK_SLOT_SIZE);
+            alignment = Utils.alignUp(Math.clamp(alignment, STACK_SLOT_SIZE, 16), STACK_SLOT_SIZE);
             stackOffset = Utils.alignUp(stackOffset, alignment);
         }
 
@@ -303,7 +303,7 @@ public class LinuxLoongArch64CallArranger {
                         if (offset + copy < layout.byteSize()) {
                             bindings.dup();
                         }
-                        bindings.bufferLoad(offset, type)
+                        bindings.bufferLoad(offset, type, (int) copy)
                                 .vmStore(storage, type);
                         offset += copy;
                     }
@@ -414,7 +414,7 @@ public class LinuxLoongArch64CallArranger {
                         VMStorage storage = locations[locIndex++];
                         Class<?> type = SharedUtils.primitiveCarrierForSize(copy, false);
                         bindings.dup().vmLoad(storage, type)
-                                .bufferStore(offset, type);
+                                .bufferStore(offset, type, (int) copy);
                         offset += copy;
                     }
                 }

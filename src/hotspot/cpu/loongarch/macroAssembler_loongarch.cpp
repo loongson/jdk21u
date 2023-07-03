@@ -1381,7 +1381,7 @@ void MacroAssembler::cmpxchg(Address addr, Register oldval, Register newval,
 
   bind(fail);
   if (barrier)
-    membar(LoadLoad);
+    dbar(0x700);
   if (retold && oldval != R0)
     move(oldval, resflag);
   if (!exchange) {
@@ -1406,7 +1406,7 @@ void MacroAssembler::cmpxchg(Address addr, Register oldval, Register newval,
 
   bind(neq);
   if (barrier)
-    membar(LoadLoad);
+    dbar(0x700);
   if (retold && oldval != R0)
     move(oldval, tmp);
   if (fail)
@@ -1440,7 +1440,7 @@ void MacroAssembler::cmpxchg32(Address addr, Register oldval, Register newval,
 
   bind(fail);
   if (barrier)
-    membar(LoadLoad);
+    dbar(0x700);
   if (retold && oldval != R0)
     move(oldval, resflag);
   if (!exchange) {
@@ -1467,7 +1467,7 @@ void MacroAssembler::cmpxchg32(Address addr, Register oldval, Register newval, R
 
   bind(neq);
   if (barrier)
-    membar(LoadLoad);
+    dbar(0x700);
   if (retold && oldval != R0)
     move(oldval, tmp);
   if (fail)
@@ -1708,14 +1708,14 @@ void MacroAssembler::access_load_at(BasicType type, DecoratorSet decorators, Reg
 }
 
 void MacroAssembler::access_store_at(BasicType type, DecoratorSet decorators, Address dst, Register val,
-                                     Register tmp1, Register tmp2) {
+                                     Register tmp1, Register tmp2, Register tmp3) {
   BarrierSetAssembler* bs = BarrierSet::barrier_set()->barrier_set_assembler();
   decorators = AccessInternal::decorator_fixup(decorators, type);
   bool as_raw = (decorators & AS_RAW) != 0;
   if (as_raw) {
-    bs->BarrierSetAssembler::store_at(this, decorators, type, dst, val, tmp1, tmp2);
+    bs->BarrierSetAssembler::store_at(this, decorators, type, dst, val, tmp1, tmp2, tmp3);
   } else {
-    bs->store_at(this, decorators, type, dst, val, tmp1, tmp2);
+    bs->store_at(this, decorators, type, dst, val, tmp1, tmp2, tmp3);
   }
 }
 
@@ -1731,13 +1731,13 @@ void MacroAssembler::load_heap_oop_not_null(Register dst, Address src, Register 
 }
 
 void MacroAssembler::store_heap_oop(Address dst, Register val, Register tmp1,
-                                    Register tmp2, DecoratorSet decorators) {
-  access_store_at(T_OBJECT, IN_HEAP | decorators, dst, val, tmp1, tmp2);
+                                    Register tmp2, Register tmp3, DecoratorSet decorators) {
+  access_store_at(T_OBJECT, IN_HEAP | decorators, dst, val, tmp1, tmp2, tmp3);
 }
 
 // Used for storing NULLs.
 void MacroAssembler::store_heap_oop_null(Address dst) {
-  access_store_at(T_OBJECT, IN_HEAP, dst, noreg, noreg, noreg);
+  access_store_at(T_OBJECT, IN_HEAP, dst, noreg, noreg, noreg, noreg);
 }
 
 #ifdef ASSERT
@@ -3029,10 +3029,14 @@ void MacroAssembler::membar(Membar_mask_bits hint){
   address last = code()->last_insn();
   if (last != nullptr && ((NativeInstruction*)last)->is_sync() && prev == last) {
     code()->set_last_insn(nullptr);
+    NativeMembar *membar = (NativeMembar*)prev;
+    // merged membar
+    // e.g. LoadLoad and LoadLoad|LoadStore to LoadLoad|LoadStore
+    membar->set_hint(membar->get_hint() & (~hint & 0xF));
     block_comment("merged membar");
   } else {
     code()->set_last_insn(pc());
-    dbar(hint);
+    Assembler::membar(hint);
   }
 }
 
@@ -3664,4 +3668,98 @@ void MacroAssembler::double_move(VMRegPair src, VMRegPair dst, Register tmp) {
       movfr2gr_d(dst.first()->as_Register(), src.first()->as_FloatRegister());
     }
   }
+}
+
+// Implements fast-locking.
+// Branches to slow upon failure to lock the object.
+// Falls through upon success.
+//
+//  - obj: the object to be locked
+//  - hdr: the header, already loaded from obj, will be destroyed
+//  - flag: as cr for c2, but only as temporary regisgter for c1/interpreter
+//  - tmp: temporary registers, will be destroyed
+void MacroAssembler::fast_lock(Register obj, Register hdr, Register flag, Register tmp, Label& slow) {
+  assert(LockingMode == LM_LIGHTWEIGHT, "only used with new lightweight locking");
+  assert_different_registers(obj, hdr, flag, tmp);
+
+  // Check if we would have space on lock-stack for the object.
+  ld_wu(flag, Address(TREG, JavaThread::lock_stack_top_offset()));
+  li(tmp, (unsigned)LockStack::end_offset());
+  sltu(flag, flag, tmp);
+  beqz(flag, slow);
+
+  // Load (object->mark() | 1) into hdr
+  ori(hdr, hdr, markWord::unlocked_value);
+  // Clear lock-bits, into tmp
+  xori(tmp, hdr, markWord::unlocked_value);
+  // Try to swing header from unlocked to locked
+  cmpxchg(/*addr*/ Address(obj, 0), /*old*/ hdr, /*new*/ tmp, /*flag*/ flag, /*retold*/ true, /*barrier*/true);
+  beqz(flag, slow);
+
+  // After successful lock, push object on lock-stack
+  ld_wu(tmp, Address(TREG, JavaThread::lock_stack_top_offset()));
+  stx_d(obj, TREG, tmp);
+  addi_w(tmp, tmp, oopSize);
+  st_w(tmp, Address(TREG, JavaThread::lock_stack_top_offset()));
+}
+
+// Implements fast-unlocking.
+// Branches to slow upon failure.
+// Falls through upon success.
+//
+// - obj: the object to be unlocked
+// - hdr: the (pre-loaded) header of the object
+// - flag: as cr for c2, but only as temporary regisgter for c1/interpreter
+// - tmp: temporary registers
+void MacroAssembler::fast_unlock(Register obj, Register hdr, Register flag, Register tmp, Label& slow) {
+  assert(LockingMode == LM_LIGHTWEIGHT, "only used with new lightweight locking");
+  assert_different_registers(obj, hdr, tmp, flag);
+
+#ifdef ASSERT
+  {
+    // The following checks rely on the fact that LockStack is only ever modified by
+    // its owning thread, even if the lock got inflated concurrently; removal of LockStack
+    // entries after inflation will happen delayed in that case.
+
+    // Check for lock-stack underflow.
+    Label stack_ok;
+    ld_wu(tmp, Address(TREG, JavaThread::lock_stack_top_offset()));
+    li(flag, (unsigned)LockStack::start_offset());
+    bltu(flag, tmp, stack_ok);
+    stop("Lock-stack underflow");
+    bind(stack_ok);
+  }
+  {
+    // Check if the top of the lock-stack matches the unlocked object.
+    Label tos_ok;
+    addi_w(tmp, tmp, -oopSize);
+    ldx_d(tmp, TREG, tmp);
+    beq(tmp, obj, tos_ok);
+    stop("Top of lock-stack does not match the unlocked object");
+    bind(tos_ok);
+  }
+  {
+    // Check that hdr is fast-locked.
+    Label hdr_ok;
+    andi(tmp, hdr, markWord::lock_mask_in_place);
+    beqz(tmp, hdr_ok);
+    stop("Header is not fast-locked");
+    bind(hdr_ok);
+  }
+#endif
+
+  // Load the new header (unlocked) into tmp
+  ori(tmp, hdr, markWord::unlocked_value);
+
+  // Try to swing header from locked to unlocked
+  cmpxchg(/*addr*/ Address(obj, 0), /*old*/ hdr, /*new*/ tmp, /*flag*/ flag, /**/true, /*barrier*/ true);
+  beqz(flag, slow);
+
+  // After successful unlock, pop object from lock-stack
+  ld_wu(tmp, Address(TREG, JavaThread::lock_stack_top_offset()));
+  addi_w(tmp, tmp, -oopSize);
+#ifdef ASSERT
+  stx_d(R0, TREG, tmp);
+#endif
+  st_w(tmp, Address(TREG, JavaThread::lock_stack_top_offset()));
 }

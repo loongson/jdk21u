@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2018, 2022, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2022, Loongson Technology. All rights reserved.
+ * Copyright (c) 2023, Loongson Technology. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,7 +21,43 @@
  * questions.
  */
 
-/**
- * The LoongArch64 HotSpot specific portions of the JVMCI API.
- */
-package jdk.vm.ci.hotspot.loongarch64;
+package org.openjdk.bench.loongarch;
+
+import org.openjdk.jmh.annotations.*;
+import java.util.concurrent.TimeUnit;
+
+@BenchmarkMode(Mode.Throughput)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+
+@State(Scope.Thread)
+public class MisAlignVector {
+
+    public static final double fval = 2.00;
+    public static double[] D;
+    public static int[] I;
+
+    @Param({"100", "1000", "10000", "30000"})
+    public static int size;
+
+    @Setup(Level.Iteration)
+    public void up() throws Throwable {
+      D = new double[size];
+      I = new int[size];
+   }
+
+   @TearDown(Level.Iteration)
+   public void down() throws Throwable {
+       D = null;
+       I = null;
+   }
+
+   @Benchmark
+   public void testFPUAndALU(){
+        for (int i=0; i<size; i++) {
+           D[i] += D[i] * fval;
+           D[i] += D[i] / fval;
+           I[i] += I[i]*2;
+           I[i] += I[i]/2;
+        }
+    }
+}
