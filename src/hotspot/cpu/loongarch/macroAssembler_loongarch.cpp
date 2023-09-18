@@ -1345,7 +1345,7 @@ void MacroAssembler::bswap_w(Register dst, Register src) {
 }
 
 void MacroAssembler::cmpxchg(Address addr, Register oldval, Register newval,
-                             Register resflag, bool retold, bool barrier,
+                             Register resflag, bool retold, bool acquire,
                              bool weak, bool exchange) {
   assert(oldval != resflag, "oldval != resflag");
   assert(newval != resflag, "newval != resflag");
@@ -1368,8 +1368,11 @@ void MacroAssembler::cmpxchg(Address addr, Register oldval, Register newval,
   b(succ);
 
   bind(fail);
-  if (barrier)
+  if (acquire) {
+    membar(Assembler::Membar_mask_bits(LoadLoad|LoadStore));
+  } else {
     dbar(0x700);
+  }
   if (retold && oldval != R0)
     move(oldval, resflag);
   if (!exchange) {
@@ -1379,7 +1382,7 @@ void MacroAssembler::cmpxchg(Address addr, Register oldval, Register newval,
 }
 
 void MacroAssembler::cmpxchg(Address addr, Register oldval, Register newval,
-                             Register tmp, bool retold, bool barrier, Label& succ, Label* fail) {
+                             Register tmp, bool retold, bool acquire, Label& succ, Label* fail) {
   assert(oldval != tmp, "oldval != tmp");
   assert(newval != tmp, "newval != tmp");
   Label again, neq;
@@ -1393,8 +1396,11 @@ void MacroAssembler::cmpxchg(Address addr, Register oldval, Register newval,
   b(succ);
 
   bind(neq);
-  if (barrier)
+  if (acquire) {
+    membar(Assembler::Membar_mask_bits(LoadLoad|LoadStore));
+  } else {
     dbar(0x700);
+  }
   if (retold && oldval != R0)
     move(oldval, tmp);
   if (fail)
@@ -1402,7 +1408,7 @@ void MacroAssembler::cmpxchg(Address addr, Register oldval, Register newval,
 }
 
 void MacroAssembler::cmpxchg32(Address addr, Register oldval, Register newval,
-                               Register resflag, bool sign, bool retold, bool barrier,
+                               Register resflag, bool sign, bool retold, bool acquire,
                                bool weak, bool exchange) {
   assert(oldval != resflag, "oldval != resflag");
   assert(newval != resflag, "newval != resflag");
@@ -1427,8 +1433,11 @@ void MacroAssembler::cmpxchg32(Address addr, Register oldval, Register newval,
   b(succ);
 
   bind(fail);
-  if (barrier)
+  if (acquire) {
+    membar(Assembler::Membar_mask_bits(LoadLoad|LoadStore));
+  } else {
     dbar(0x700);
+  }
   if (retold && oldval != R0)
     move(oldval, resflag);
   if (!exchange) {
@@ -1438,7 +1447,7 @@ void MacroAssembler::cmpxchg32(Address addr, Register oldval, Register newval,
 }
 
 void MacroAssembler::cmpxchg32(Address addr, Register oldval, Register newval, Register tmp,
-                               bool sign, bool retold, bool barrier, Label& succ, Label* fail) {
+                               bool sign, bool retold, bool acquire, Label& succ, Label* fail) {
   assert(oldval != tmp, "oldval != tmp");
   assert(newval != tmp, "newval != tmp");
   Label again, neq;
@@ -1454,8 +1463,11 @@ void MacroAssembler::cmpxchg32(Address addr, Register oldval, Register newval, R
   b(succ);
 
   bind(neq);
-  if (barrier)
+  if (acquire) {
+    membar(Assembler::Membar_mask_bits(LoadLoad|LoadStore));
+  } else {
     dbar(0x700);
+  }
   if (retold && oldval != R0)
     move(oldval, tmp);
   if (fail)
