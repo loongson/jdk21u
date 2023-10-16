@@ -673,9 +673,11 @@ class MacroAssembler: public Assembler {
                        Register tmp1, Register tmp2);
 
   // Code for java.lang.StringUTF16::compress intrinsic.
-  void char_array_compress(Register src, Register dst, Register len,
-                           Register result, Register tmp1,
-                           Register tmp2, Register tmp3);
+  void char_array_compress(Register src, Register dst,
+                           Register len, Register result,
+                           Register tmp1, Register tmp2, Register tmp3,
+                           FloatRegister vtemp1, FloatRegister vtemp2,
+                           FloatRegister vtemp3, FloatRegister vtemp4);
 
   // Code for java.lang.StringLatin1::inflate intrinsic.
   void byte_array_inflate(Register src, Register dst, Register len,
@@ -687,7 +689,9 @@ class MacroAssembler: public Assembler {
   void encode_iso_array(Register src, Register dst,
                         Register len, Register result,
                         Register tmp1, Register tmp2,
-                        Register tmp3, bool ascii);
+                        Register tmp3, bool ascii,
+                        FloatRegister vtemp1, FloatRegister vtemp2,
+                        FloatRegister vtemp3, FloatRegister vtemp4);
 
   // Code for java.math.BigInteger::mulAdd intrinsic.
   void mul_add(Register out, Register in, Register offset,
