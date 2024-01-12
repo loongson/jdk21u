@@ -40,6 +40,7 @@
 #include "prims/methodHandles.hpp"
 #include "runtime/continuation.hpp"
 #include "runtime/continuationEntry.inline.hpp"
+#include "runtime/globals.hpp"
 #include "runtime/jniHandles.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/signature.hpp"
@@ -1740,7 +1741,7 @@ nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
       __ orr(swap_reg, swap_reg, AT);
 
       __ st_d(swap_reg, lock_reg, mark_word_offset);
-      __ cmpxchg(Address(obj_reg, 0), swap_reg, lock_reg, AT, true, false, count);
+      __ cmpxchg(Address(obj_reg, 0), swap_reg, lock_reg, AT, true, true /* acquire */, count);
       // Test if the oopMark is an obvious stack pointer, i.e.,
       //  1) (mark & 3) == 0, and
       //  2) sp <= mark < mark + os::pagesize()
@@ -1813,14 +1814,14 @@ nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
   //     Thread A is resumed to finish this native method, but doesn't block here since it
   //     didn't see any synchronization is progress, and escapes.
   __ addi_d(AT, R0, _thread_in_native_trans);
-  if (os::is_MP()) {
+
+  // Force this write out before the read below
+  if (os::is_MP() && UseSystemMemoryBarrier) {
     __ addi_d(T4, TREG, in_bytes(JavaThread::thread_state_offset()));
-    __ amswap_db_w(R0, AT, T4);
+    __ amswap_db_w(R0, AT, T4); // AnyAny
   } else {
     __ st_w(AT, TREG, in_bytes(JavaThread::thread_state_offset()));
   }
-
-  if(os::is_MP())  __ membar(__ AnyAny);
 
   // check for safepoint operation in progress and/or pending suspend requests
   {
@@ -1916,7 +1917,7 @@ nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
       __ addi_d(lock_reg, FP, lock_slot_fp_offset);
       // Atomic swap old header if oop still contains the stack lock
       Label count;
-      __ cmpxchg(Address(obj_reg, 0), lock_reg, T8, AT, false, false, count, &slow_path_unlock);
+      __ cmpxchg(Address(obj_reg, 0), lock_reg, T8, AT, false, true /* acquire */, count, &slow_path_unlock);
       __ bind(count);
       __ decrement(Address(TREG, JavaThread::held_monitor_count_offset()), 1);
     } else {

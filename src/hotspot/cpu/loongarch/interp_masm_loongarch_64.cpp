@@ -834,7 +834,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
 
       assert(lock_offset == 0, "displached header must be first word in BasicObjectLock");
 
-      cmpxchg(Address(scr_reg, 0), tmp_reg, lock_reg, AT, true, false, count);
+      cmpxchg(Address(scr_reg, 0), tmp_reg, lock_reg, AT, true, true /* acquire */, count);
 
       // Test if the oopMark is an obvious stack pointer, i.e.,
       //  1) (mark & 3) == 0, and
@@ -933,7 +933,7 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
       beqz(hdr_reg, count);
 
       // Atomic swap back the old header
-      cmpxchg(Address(scr_reg, 0), tmp_reg, hdr_reg, AT, false, false, count);
+      cmpxchg(Address(scr_reg, 0), tmp_reg, hdr_reg, AT, false, true /* acquire */, count);
     }
     // Call the runtime routine for slow case.
     st_d(scr_reg, Address(lock_reg, BasicObjectLock::obj_offset())); // restore obj
