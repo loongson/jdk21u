@@ -151,6 +151,10 @@ ATTRIBUTE_ALIGNED(64) jdouble StubRoutines::la::_dcos_coef[] = {
     -1.13596475577881948265e-11  // 0xBDA8FAE9BE8838D4
 };
 
+ATTRIBUTE_ALIGNED(128) julong StubRoutines::la::_string_compress_index[] = {
+    0x0e0c0a0806040200UL, 0x1e1c1a1816141210UL // 128-bit shuffle index
+};
+
 // Table of constants for 2/pi, 396 Hex digits (476 decimal) of 2/pi.
 // Used in cases of very large argument. 396 hex digits is enough to support
 // required precision.
@@ -181,4 +185,14 @@ ATTRIBUTE_ALIGNED(64) jdouble StubRoutines::la::_pio2[] = {
   1.22933308981111328932e-36, // 0x387A252040000000
   2.73370053816464559624e-44, // 0x36E3822280000000
   2.16741683877804819444e-51, // 0x3569F31D00000000
+};
+
+ATTRIBUTE_ALIGNED(64) jfloat StubRoutines::la::_round_float_imm[] = {
+  0.49999997f, // round positive
+  0.5f,        // round negative
+};
+
+ATTRIBUTE_ALIGNED(64) jdouble StubRoutines::la::_round_double_imm[] = {
+  0.49999999999999994d, // round positive
+  0.5d,                 // round negative
 };

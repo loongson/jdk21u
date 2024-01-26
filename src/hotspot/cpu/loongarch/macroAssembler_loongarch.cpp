@@ -3538,65 +3538,13 @@ void MacroAssembler::count_positives(Register src, Register len, Register result
 // jtreg: TestStringIntrinsicRangeChecks.java
 void MacroAssembler::char_array_compress(Register src, Register dst,
                                          Register len, Register result,
-                                         Register tmp1, Register tmp2,
-                                         Register tmp3) {
-  Label Loop, Done, Once, Fail;
-
-  move(result, len);
-  bge(R0, result, Done);
-
-  srli_w(AT, len, 2);
-  andi(len, len, 3);
-
-  li(tmp3, 0xff00ff00ff00ff00);
-
-  bind(Loop);
-    beqz(AT, Once);
-    ld_d(tmp1, src, 0);
-    andr(tmp2, tmp3, tmp1);          // not latin-1, stop here
-    bnez(tmp2, Fail);
-
-    // 0x00a100b200c300d4 -> 0x00000000a1b2c3d4
-    srli_d(tmp2, tmp1, 8);
-    orr(tmp2, tmp2, tmp1);           // 0x00a1a1b2b2c3c3d4
-    bstrpick_d(tmp1, tmp2, 47, 32);  // 0x0000a1b2
-    slli_d(tmp1, tmp1, 16);          // 0xa1b20000
-    bstrins_d(tmp1, tmp2, 15, 0);    // 0xa1b2c3d4
-
-    st_w(tmp1, dst, 0);
-    addi_w(AT, AT, -1);
-    addi_d(dst, dst, 4);
-    addi_d(src, src, 8);
-    b(Loop);
-
-  bind(Once);
-    beqz(len, Done);
-    ld_d(AT, src, 0);
-
-    bstrpick_d(tmp1, AT, 15, 0);
-    andr(tmp2, tmp3, tmp1);
-    bnez(tmp2, Fail);
-    st_b(tmp1, dst, 0);
-    addi_w(len, len, -1);
-
-    beqz(len, Done);
-    bstrpick_d(tmp1, AT, 31, 16);
-    andr(tmp2, tmp3, tmp1);
-    bnez(tmp2, Fail);
-    st_b(tmp1, dst, 1);
-    addi_w(len, len, -1);
-
-    beqz(len, Done);
-    bstrpick_d(tmp1, AT, 47, 32);
-    andr(tmp2, tmp3, tmp1);
-    bnez(tmp2, Fail);
-    st_b(tmp1, dst, 2);
-    b(Done);
-
-  bind(Fail);
-    move(result, R0);
-
-  bind(Done);
+                                         Register tmp1, Register tmp2, Register tmp3,
+                                         FloatRegister vtemp1, FloatRegister vtemp2,
+                                         FloatRegister vtemp3, FloatRegister vtemp4) {
+  encode_iso_array(src, dst, len, result, tmp1, tmp2, tmp3, false, vtemp1, vtemp2, vtemp3, vtemp4);
+  // Adjust result: result == len ? len : 0
+  sub_w(tmp1, result, len);
+  masknez(result, result, tmp1);
 }
 
 // Inflate byte[] to char[]. len must be positive int.
@@ -3690,20 +3638,51 @@ void MacroAssembler::byte_array_inflate(Register src, Register dst, Register len
 void MacroAssembler::encode_iso_array(Register src, Register dst,
                                       Register len, Register result,
                                       Register tmp1, Register tmp2,
-                                      Register tmp3, bool ascii) {
-  Label Loop, Done, Once;
+                                      Register tmp3, bool ascii,
+                                      FloatRegister vtemp1, FloatRegister vtemp2,
+                                      FloatRegister vtemp3, FloatRegister vtemp4) {
+  const FloatRegister shuf_index = vtemp3;
+  const FloatRegister latin_mask = vtemp4;
 
-  move(result, R0);                  // init in case of bad value
+  Label Deal8, Loop8, Loop32, Done, Once;
+
+  move(result, R0);  // init in case of bad value
   bge(R0, len, Done);
 
-  srai_w(AT, len, 2);
-
   li(tmp3, ascii ? 0xff80ff80ff80ff80 : 0xff00ff00ff00ff00);
+  srai_w(AT, len, 4);
+  beqz(AT, Deal8);
 
-  bind(Loop);
+  li(tmp1, StubRoutines::la::string_compress_index());
+  vld(shuf_index, tmp1, 0);
+  vreplgr2vr_d(latin_mask, tmp3);
+
+  bind(Loop32);
+    beqz(AT, Deal8);
+
+    vld(vtemp1, src, 0);
+    vld(vtemp2, src, 16);
+    addi_w(AT, AT, -1);
+
+    vor_v(fscratch, vtemp1, vtemp2);
+    vand_v(fscratch, fscratch, latin_mask);
+    vseteqz_v(FCC0, fscratch);  // not latin-1, apply slow path
+    bceqz(FCC0, Once);
+
+    vshuf_b(fscratch, vtemp2, vtemp1, shuf_index);
+
+    vstx(fscratch, dst, result);
+    addi_d(src, src, 32);
+    addi_w(result, result, 16);
+    b(Loop32);
+
+  bind(Deal8);
+    bstrpick_w(AT, len, 3, 2);
+
+  bind(Loop8);
     beqz(AT, Once);
     ld_d(tmp1, src, 0);
-    andr(tmp2, tmp3, tmp1);          // not latin-1, stop here
+    andr(tmp2, tmp3, tmp1);  // not latin-1, apply slow path
     bnez(tmp2, Once);
 
     // 0x00a100b200c300d4 -> 0x00000000a1b2c3d4
@@ -3717,12 +3696,12 @@ void MacroAssembler::encode_iso_array(Register src, Register dst,
     addi_w(AT, AT, -1);
     addi_d(src, src, 8);
     addi_w(result, result, 4);
-    b(Loop);
+    b(Loop8);
 
   bind(Once);
     beq(len, result, Done);
     ld_hu(tmp1, src, 0);
-    andr(tmp2, tmp3, tmp1);          // not latin-1, stop here
+    andr(tmp2, tmp3, tmp1);  // not latin-1, stop here
     bnez(tmp2, Done);
     stx_b(tmp1, dst, result);
     addi_d(src, src, 2);
@@ -3730,6 +3709,144 @@ void MacroAssembler::encode_iso_array(Register src, Register dst,
     b(Once);
 
   bind(Done);
+}
+
+// Math.round employs the ties-to-positive round mode,
+// which is not a typically conversion method defined
+// in the IEEE-754-2008. For single-precision floatings,
+// the following algorithm can be used to effectively
+// implement rounding via standard operations.
+//
+// if src >= 0:
+//   dst = floor(src + 0.49999997f)
+// else:
+//   dst = floor(src + 0.5f)
+void MacroAssembler::java_round_float(Register dst,
+                                      FloatRegister src,
+                                      Register tmp) {
+  block_comment("java_round_float: { ");
+  li(AT, StubRoutines::la::round_float_imm());
+
+  movfr2gr_s(tmp, src);
+  bstrpick_w(tmp, tmp, 31, 31);
+  slli_w(tmp, tmp, 2);
+  fldx_s(fscratch, AT, tmp);
+  fadd_s(fscratch, fscratch, src);
+
+  ftintrm_w_s(fscratch, fscratch);
+  movfr2gr_s(dst, fscratch);
+  block_comment("} java_round_float");
+}
+
+void MacroAssembler::java_round_float_lsx(FloatRegister dst,
+                                          FloatRegister src,
+                                          FloatRegister vtemp1,
+                                          FloatRegister vtemp2) {
+  block_comment("java_round_float_lsx: { ");
+  li(AT, StubRoutines::la::round_float_imm());
+
+  vldrepl_w(vtemp2, AT, 1);  // repl 0.5f
+  vslti_w(fscratch, src, 0);  // masked add
+  vand_v(vtemp2, fscratch, vtemp2);
+  vfadd_s(dst, src, vtemp2);
+
+  vldrepl_w(vtemp1, AT, 0);  // repl 0.49999997f
+  vnor_v(fscratch, fscratch, fscratch);  // rev mask
+  vand_v(vtemp1, fscratch, vtemp1);
+  vfadd_s(dst, dst, vtemp1);
+
+  vftintrm_w_s(dst, dst);
+  block_comment("} java_round_float_lsx");
+}
+
+void MacroAssembler::java_round_float_lasx(FloatRegister dst,
+                                           FloatRegister src,
+                                           FloatRegister vtemp1,
+                                           FloatRegister vtemp2) {
+  block_comment("java_round_float_lasx: { ");
+  li(AT, StubRoutines::la::round_float_imm());
+
+  xvldrepl_w(vtemp2, AT, 1);  // repl 0.5f
+  xvslti_w(fscratch, src, 0);  // masked add
+  xvand_v(vtemp2, fscratch, vtemp2);
+  xvfadd_s(dst, src, vtemp2);
+
+  xvldrepl_w(vtemp1, AT, 0);  // repl 0.49999997f
+  xvnor_v(fscratch, fscratch, fscratch);  // rev mask
+  xvand_v(vtemp1, fscratch, vtemp1);
+  xvfadd_s(dst, dst, vtemp1);
+
+  xvftintrm_w_s(dst, dst);
+  block_comment("} java_round_float_lasx");
+}
+
+// Math.round employs the ties-to-positive round mode,
+// which is not a typically conversion method defined
+// in the IEEE-754-2008. For double-precision floatings,
+// the following algorithm can be used to effectively
+// implement rounding via standard operations.
+//
+// if src >= 0:
+//   dst = floor(src + 0.49999999999999994d)
+// else:
+//   dst = floor(src + 0.5d)
+void MacroAssembler::java_round_double(Register dst,
+                                       FloatRegister src,
+                                       Register tmp) {
+  block_comment("java_round_double: { ");
+  li(AT, StubRoutines::la::round_double_imm());
+
+  movfr2gr_d(tmp, src);
+  bstrpick_d(tmp, tmp, 63, 63);
+  slli_d(tmp, tmp, 3);
+  fldx_d(fscratch, AT, tmp);
+  fadd_d(fscratch, fscratch, src);
+
+  ftintrm_l_d(fscratch, fscratch);
+  movfr2gr_d(dst, fscratch);
+  block_comment("} java_round_double");
+}
+
+void MacroAssembler::java_round_double_lsx(FloatRegister dst,
+                                           FloatRegister src,
+                                           FloatRegister vtemp1,
+                                           FloatRegister vtemp2) {
+  block_comment("java_round_double_lsx: { ");
+  li(AT, StubRoutines::la::round_double_imm());
+
+  vldrepl_d(vtemp2, AT, 1);  // repl 0.5d
+  vslti_d(fscratch, src, 0);  // masked add
+  vand_v(vtemp2, fscratch, vtemp2);
+  vfadd_d(dst, src, vtemp2);
+
+  vldrepl_d(vtemp1, AT, 0);  // repl 0.49999999999999994d
+  vnor_v(fscratch, fscratch, fscratch);  // rev mask
+  vand_v(vtemp1, fscratch, vtemp1);
+  vfadd_d(dst, dst, vtemp1);
+
+  vftintrm_l_d(dst, dst);
+  block_comment("} java_round_double_lsx");
+}
+
+void MacroAssembler::java_round_double_lasx(FloatRegister dst,
+                                            FloatRegister src,
+                                            FloatRegister vtemp1,
+                                            FloatRegister vtemp2) {
+  block_comment("java_round_double_lasx: { ");
+  li(AT, StubRoutines::la::round_double_imm());
+
+  xvldrepl_d(vtemp2, AT, 1);  // repl 0.5d
+  xvslti_d(fscratch, src, 0);  // masked add
+  xvand_v(vtemp2, fscratch, vtemp2);
+  xvfadd_d(dst, src, vtemp2);
+
+  xvldrepl_d(vtemp1, AT, 0);  // repl 0.49999999999999994d
+  xvnor_v(fscratch, fscratch, fscratch);  // rev mask
+  xvand_v(vtemp1, fscratch, vtemp1);
+  xvfadd_d(dst, dst, vtemp1);
+
+  xvftintrm_l_d(dst, dst);
+  block_comment("} java_round_double_lasx");
 }
 
 // Code for BigInteger::mulAdd intrinsic
