@@ -56,8 +56,7 @@ public class NUMAHelper {
     }
 
     static OutputAnalyzer invokeJvm(String... args) throws Exception {
-        ProcessBuilder pb = ProcessTools.createTestJavaProcessBuilder(args);
-        return new OutputAnalyzer(pb.start());
+        return new OutputAnalyzer(ProcessTools.createTestJvm(args).start());
     }
 
     static int getNUMANodes() throws Exception {
