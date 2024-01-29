@@ -74,7 +74,7 @@ public class TestVolatile {
         command.add("-XX:CompileCommand=dontinline," + Launcher.class.getName() + "::" + "*");
         command.add(Launcher.class.getName());
 
-        ProcessBuilder pb = ProcessTools.createLimitedTestJavaProcessBuilder(command);
+        ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(command);
 
         OutputAnalyzer analyzer = new OutputAnalyzer(pb.start());
 
