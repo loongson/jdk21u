@@ -42,7 +42,7 @@
  *                   compiler.vectorization.runner.LoopReductionOpTest
  *
  * @requires (os.simpleArch == "x64") | (os.simpleArch == "aarch64") | (os.simpleArch == "loongarch64")
- * @requires vm.compiler2.enabled & vm.flagless
+ * @requires vm.compiler2.enabled
  *
  */
 
@@ -85,9 +85,8 @@ public class LoopReductionOpTest extends VectorizationTestRunner {
 
     @Test
     @IR(applyIfCPUFeatureOr = {"asimd", "true", "sse3", "true"},
-        counts = {IRNode.LOAD_VECTOR, ">0"})
-    @IR(applyIfCPUFeatureOr = {"asimd", "true", "sse3", "true"},
-        counts = {IRNode.ADD_REDUCTION_V, ">0"})
+        counts = {IRNode.LOAD_VECTOR_I, ">0",
+                  IRNode.ADD_REDUCTION_V, ">0"})
     public int reductionAddSumOfArray() {
         int res = 0;
         for (int i = 0; i < SIZE; i++) {
@@ -127,9 +126,8 @@ public class LoopReductionOpTest extends VectorizationTestRunner {
 
     @Test
     @IR(applyIfCPUFeatureOr = {"sve", "true", "avx2", "true"},
-        counts = {IRNode.LOAD_VECTOR, ">0"})
-    @IR(applyIfCPUFeatureOr = {"sve", "true", "avx2", "true"},
-        counts = {IRNode.ADD_REDUCTION_V, ">0"})
+        counts = {IRNode.LOAD_VECTOR_I, ">0",
+                  IRNode.ADD_REDUCTION_V, ">0"})
     public int reductionAddSumOfMultiple() {
         int res = 0;
         for (int i = 0; i < SIZE; i++) {
